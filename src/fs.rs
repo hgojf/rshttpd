@@ -72,18 +72,31 @@ impl Server<'_> {
 	async fn handle_open(&self, peer: &mut proc::Peer, path: &str)
 	-> std::io::Result<()> 
 	{
-		let response = self.open(path).await;
-		let resp: OpenResponse = (&response).into();
+		let mut response = self.open(path).await;
+		let resp = match response {
+			Err(FileError::NotFound) => OpenResponse::NotFound,
+			Err(FileError::NotAllowed) => OpenResponse::NotAllowed,
+			Err(FileError::Io) => OpenResponse::OtherError,
+			Err(FileError::SpecialFile) => OpenResponse::OtherError,
+			Ok(File::File(_)) => OpenResponse::File,
+			Ok(File::Dir(ref mut dir)) => {
+				let mut vec = Vec::new();
+				while let Some(entry) = dir.next_entry().await? {
+					let name = entry.file_name();
+					let name = name.into_string().unwrap();
+					vec.push(FileInfo {
+						name
+					});
+				}
+				OpenResponse::Dir(vec)
+			}
+		};
 		let buf = serde_cbor::to_vec(&resp).expect("serde_cbor");
 	
 		let slice = std::io::IoSlice::new(&buf);
 		let mut buf: [u8; 128] = [0; 128];
 		let mut writer = AncillaryMessageWriter::new(&mut buf);
-		if let Ok(file) = &response {
-			let fd = match &file {
-				File::File(fd) => fd,
-				File::Dir(fd) => fd,
-			};
+		if let Ok(File::File(fd)) = &response {
 			writer.add_fds(&[fd.as_fd()]).expect("add_fds");
 		}
 		peer.socket().send_vectored_with_ancillary(&[slice], &mut writer)
@@ -117,24 +130,17 @@ impl <'a> Server<'a> {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct FileInfo {
+	pub name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub enum OpenResponse {
 	NotFound,
 	NotAllowed,
 	OtherError,
 	File,
-	Dir,
-}
-
-impl From <&Result<File, FileError>> for OpenResponse {
-	fn from(source: &Result<File, FileError>) -> Self {
-		match source {
-			Ok(File::Dir(_)) => Self::Dir,
-			Ok(File::File(_)) => Self::File,
-			Err(FileError::NotFound) => Self::NotFound,
-			Err(FileError::NotAllowed) => Self::NotAllowed,
-			Err(FileError::Io) | Err(FileError::SpecialFile) => Self::OtherError,
-		}
-	}
+	Dir(Vec<FileInfo>),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -158,7 +164,7 @@ impl From<std::io::Error> for FileError {
 #[derive(Debug)]
 enum File {
 	File(OwnedFd),
-	Dir(OwnedFd),
+	Dir(tokio::fs::ReadDir),
 }
 
 /* The path has to start with the location
@@ -196,7 +202,11 @@ impl Server<'_> {
 		let metadata = file.metadata().await?;
 		let fd = OwnedFd::from(file.into_std().await);
 		if metadata.is_dir() {
-			return Ok(File::Dir(fd));
+			/* Under pledge you can't send directory file descriptors,
+			 * so this has to do
+			 */
+			let dir = tokio::fs::read_dir(path).await?;
+			return Ok(File::Dir(dir));
 		}
 		else if metadata.is_file() {
 			return Ok(File::File(fd));

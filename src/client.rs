@@ -7,7 +7,7 @@ use pledge::pledge;
 
 enum File {
 	File(tokio::fs::File),
-	Dir(tokio::fs::ReadDir),
+	Dir(String),
 	Error(http::ResponseCode),
 }
 
@@ -17,8 +17,8 @@ impl File {
 			Self::File(file) => {
 				Ok(file.metadata().await?.len().try_into().unwrap())
 			}
-			Self::Dir(_) => {
-				panic!()
+			Self::Dir(dir) => {
+				Ok(dir.len())
 			}
 			Self::Error(_) => Ok(3),
 		}
@@ -29,8 +29,8 @@ impl File {
 			Self::File(ref mut file) => {
 				tokio::io::copy(file, writer).await?;
 			}
-			Self::Dir(_) => {
-				panic!()
+			Self::Dir(dir) => {
+				writer.write(dir.as_bytes()).await?;
 			}
 			Self::Error(http::ResponseCode::NotFound) => {
 				writer.write(b"404").await?;
@@ -95,7 +95,14 @@ pub async fn main() -> ! {
 				};
 				(http::ResponseCode::Ok, File::File(file))
 			}
-			fs::OpenResponse::Dir => panic!(),
+			fs::OpenResponse::Dir(dir) => {
+				let mut string = String::new();
+				for file in dir {
+					string.push_str(&file.name);
+					string.push('\n');
+				}
+				(http::ResponseCode::Ok, File::Dir(string))
+			}
 			fs::OpenResponse::NotFound => {
 				let code = http::ResponseCode::NotFound;
 				(code, File::Error(code))
