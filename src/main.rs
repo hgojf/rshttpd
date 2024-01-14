@@ -24,12 +24,15 @@ async fn main() {
 	args.next().expect("what?");
 	if let Some(arg) = args.next() {
 		if arg == "-f" {
+			proc::privdrop("/var/www/htdocs/", "www").expect("privdrop");
 			fs::main().await;
 		}
 		if arg == "-c" {
+			proc::privdrop("/var/empty", "www").expect("privdrop");
 			client::main().await;
 		}
 		if arg == "-e" {
+			proc::privdrop("/var/empty", "www").expect("privdrop");
 			crypto::main().await;
 		}
 	}
@@ -39,9 +42,6 @@ async fn main() {
 	let keyfile = tokio::fs::File::open("./key.pem").await.expect("open");
 	let keyfile = keyfile.into_std().await;
 
-	unveil::unveil(PROGRAM_PATH, "x").expect("unveil");
-	pledge("stdio sendfd proc exec inet dns", None).expect("pledge");
-
 	let mut fs = proc::ProcessBuilder::new(PROGRAM_PATH, "httpd: filesystem", "-f")
 		.build().expect("exec");
 	let mut client = proc::ProcessBuilder::new(PROGRAM_PATH, "httpd: client", "-c")
@@ -49,11 +49,12 @@ async fn main() {
 	let mut crypto = proc::ProcessBuilder::new(PROGRAM_PATH, "httpd: crypto", "-e")
 		.build().expect("exec");
 
+	proc::privdrop("/var/empty/", "www").expect("privdrop");
 	pledge("stdio sendfd proc inet dns", None).expect("pledge");
 
 	let server = Server {
 		fs: fs::Server::new(vec![
-			fs::Location::new("/var/www/htdocs/".to_string(), false),
+			fs::Location::new("/".to_string(), false),
 			//fs::Location::new("/var/www/htdocs/bgplg/".to_string(), true),
 		]),
 	};

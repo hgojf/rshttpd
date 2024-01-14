@@ -4,8 +4,20 @@ use tokio::process;
 use tokio_command_fds::{CommandFdExt, FdMapping};
 use std::os::fd::{OwnedFd, AsFd};
 use nix::sys::signal;
+use nix::unistd::User;
 
 const PROCESS_FD: std::os::fd::RawFd = 3;
+
+pub fn privdrop(root: &str, user: &str) -> std::io::Result<()> {
+	let user = User::from_name(user)?
+		.ok_or::<std::io::Error>(std::io::ErrorKind::NotFound.into())?;
+	nix::unistd::chroot(root).expect("chroot");
+	nix::unistd::chdir("/").expect("chdir");
+	nix::unistd::setgroups(&[user.gid]).expect("setgroups");
+	nix::unistd::setresgid(user.gid, user.gid, user.gid).expect("setgid");
+	nix::unistd::setresuid(user.uid, user.uid, user.uid).expect("setuid");
+	Ok(())
+}
 
 pub struct ProcessBuilder<'a> {
 	path: &'a str,
