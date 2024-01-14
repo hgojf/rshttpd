@@ -66,17 +66,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
-name = "command-fds"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7bb11bd1378bf3731b182997b40cefe00aba6a6cc74042c8318c1b271d3badf7"
-dependencies = [
- "nix",
- "thiserror",
- "tokio",
-]
-
-[[package]]
 name = "filedesc"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -118,7 +107,6 @@ checksum = "d77f7ec81a6d05a3abb01ab6eb7590f6083d08449fe5a1c8b1e620283546ccb7"
 name = "httpd"
 version = "0.1.0"
 dependencies = [
- "command-fds",
  "nix",
  "pledge",
  "rustls",

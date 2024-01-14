@@ -6,8 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-command-fds = { version = "0.3.0", features = ["tokio"] }
-nix = { version = "0.27.1", features = ["user", "process", "signal"] }
+nix = { version = "0.27.1", features = ["fs", "user", "process", "signal"] }
 pledge = "0.4.2"
 rustls = "0.22.2"
 rustls-pemfile = "2.0.0"
