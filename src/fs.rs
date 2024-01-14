@@ -3,8 +3,8 @@ use pledge::pledge;
 use unveil::unveil;
 use serde_derive::{Serialize, Deserialize};
 use tokio_seqpacket::UnixSeqpacket;
-use tokio_seqpacket::ancillary::{AncillaryMessage, AncillaryMessageWriter};
-use std::os::fd::{AsFd, OwnedFd, AsRawFd};
+use tokio_seqpacket::ancillary::{AncillaryMessageWriter};
+use std::os::fd::{AsFd, OwnedFd};
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::fs;
 
@@ -27,23 +27,13 @@ pub async fn main() -> ! {
 	}
 	pledge("stdio sendfd recvfd rpath", None).expect("pledge");
 
-	let mut buffer: [u8; 128] = [0; 128];
-	let (_, ancillary) = parent.socket()
-		.recv_vectored_with_ancillary(&mut [], &mut buffer).await.expect("recv");
-	let mut messages = ancillary.messages();
-	let stream = match messages.next() {
-		Some(AncillaryMessage::FileDescriptors(fds)) => {
-			let fd = fds.get(0).expect("no file descriptor");
-			unsafe {
-				UnixSeqpacket::from_raw_fd(fd.as_raw_fd()).unwrap()
-			}
-		}
-		_ => panic!("bad message"),
+	let mut peer = {
+		let fd = parent.recv_fd().await.expect("no file descriptor");
+		let seq = UnixSeqpacket::try_from(fd).unwrap();
+		proc::Peer::from_stream(seq)
 	};
 
 	pledge("stdio sendfd rpath", None).expect("pledge");
-
-	let mut peer = proc::Peer::from_stream(stream);
 
 	let mut buf: [u8; 4096] = [0; 4096];
 

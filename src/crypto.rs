@@ -1,9 +1,8 @@
 use crate::{proc, tls};
 use tokio::signal::unix::{signal, SignalKind};
-use tokio_seqpacket::ancillary::AncillaryMessage;
+use tokio_seqpacket::ancillary::OwnedAncillaryMessage;
 use tokio::net::{TcpStream, UnixStream};
 use tokio::io::AsyncWriteExt;
-use std::os::fd::{FromRawFd, AsRawFd};
 use pledge::pledge;
 use std::sync::Arc;
 
@@ -17,16 +16,14 @@ pub async fn main() -> ! {
 	let mut buffer: [u8; 128] = [0; 128];
 	let (_, ancillary) = parent.socket()
 		.recv_vectored_with_ancillary(&mut [], &mut buffer).await.expect("recv");
-	let mut messages = ancillary.messages();
+	let mut messages = ancillary.into_messages();
 	let (certfile, keyfile) = match messages.next() {
-		Some(AncillaryMessage::FileDescriptors(fds)) => {
-			let cfd = fds.get(0).expect("no file descriptor");
-			let pfd = fds.get(1).expect("no file descriptor");
-			unsafe {
-				let c = std::fs::File::from_raw_fd(cfd.as_raw_fd());
-				let p = std::fs::File::from_raw_fd(pfd.as_raw_fd());
-				(c, p)
-			}
+		Some(OwnedAncillaryMessage::FileDescriptors(mut fds)) => {
+			let cfd = fds.next().expect("no file descriptor");
+			let pfd = fds.next().expect("no file descriptor");
+			let c = std::fs::File::from(cfd);
+			let p = std::fs::File::from(pfd);
+			(c, p)
 		}
 		_ => panic!("bad message"),
 	};
@@ -50,19 +47,17 @@ pub async fn main() -> ! {
 			read = parent.socket()
 			.recv_vectored_with_ancillary(&mut [], &mut buffer) => {
 				let (_, ancillary) = read.expect("bad message");
-				let mut message = ancillary.messages();
+				let mut message = ancillary.into_messages();
 				let (mut client, mut server) = match message.next() {
-					Some(AncillaryMessage::FileDescriptors(fds)) => {
-						let cfd = fds.get(0).expect("no file descriptor");
-						let sfd = fds.get(1).expect("no file descriptor");
-						unsafe {
-							let client = std::net::TcpStream::from_raw_fd(cfd.as_raw_fd());
-							let client = TcpStream::from_std(client).unwrap();
-							let server = std::os::unix::net::UnixStream
-								::from_raw_fd(sfd.as_raw_fd());
-							let server = UnixStream::from_std(server).unwrap();
-							(client, server)
-						}
+					Some(OwnedAncillaryMessage::FileDescriptors(mut fds)) => {
+						let cfd = fds.next().expect("no file descriptor");
+						let sfd = fds.next().expect("no file descriptor");
+						let client = std::net::TcpStream::from(cfd);
+						let client = TcpStream::from_std(client).unwrap();
+						let server = std::os::unix::net::UnixStream
+							::from(sfd);
+						let server = UnixStream::from_std(server).unwrap();
+						(client, server)
 					}
 					_ => panic!("bad message"),
 				};

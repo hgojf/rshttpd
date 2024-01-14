@@ -1,4 +1,5 @@
 use tokio_seqpacket::{ancillary::AncillaryMessageWriter, UnixSeqpacket};
+use tokio_seqpacket::ancillary::OwnedAncillaryMessage;
 use tokio::process;
 use tokio_command_fds::{CommandFdExt, FdMapping};
 use std::os::fd::{OwnedFd, AsFd};
@@ -71,6 +72,21 @@ impl Peer {
 	}
 	pub fn socket(&mut self) -> &mut UnixSeqpacket {
 		&mut self.socket
+	}
+	pub async fn recv_fd(&mut self) -> std::io::Result<OwnedFd> {
+		let mut buffer: [u8; 128] = [0; 128];
+		let (_, ancillary) = self.socket
+			.recv_vectored_with_ancillary(&mut [], &mut buffer).await?;
+		let mut messages = ancillary.into_messages();
+		let message = messages.next();
+		match message {
+			Some(OwnedAncillaryMessage::FileDescriptors(mut fds)) => {
+				let fd = fds.next()
+					.ok_or::<std::io::Error>(std::io::ErrorKind::NotFound.into())?;
+				return Ok(fd);
+			}
+			_ => return Err(std::io::ErrorKind::NotFound.into()),
+		}
 	}
 	pub async fn send(&mut self, bytes: &[u8]) -> std::io::Result<()> {
 		self.socket.send(bytes).await?;

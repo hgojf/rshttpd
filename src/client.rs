@@ -1,9 +1,8 @@
 use crate::{fs, proc, http};
 use tokio_seqpacket::UnixSeqpacket;
-use tokio_seqpacket::ancillary::AncillaryMessage;
+use tokio_seqpacket::ancillary::OwnedAncillaryMessage;
 use tokio::net::TcpStream;
 use tokio::io::{AsyncWriteExt, BufReader};
-use std::os::fd::{FromRawFd, AsRawFd};
 use pledge::pledge;
 
 enum File {
@@ -56,35 +55,17 @@ pub async fn main() -> ! {
 		proc::Peer::get_parent()
 	};
 	
-	let mut buffer: [u8; 128] = [0; 128];
-	let (_, ancillary) = parent.socket()
-		.recv_vectored_with_ancillary(&mut [], &mut buffer).await.expect("recv");
-	let mut message = ancillary.messages();
-	let fs = match message.next() {
-		Some(AncillaryMessage::FileDescriptors(fds)) => {
-			let fd = fds.get(0).expect("no file descriptor");
-			unsafe {
-				UnixSeqpacket::from_raw_fd(fd.as_raw_fd()).unwrap()
-			}
-		}
-		_ => panic!("bad message"),
+	let mut fs = {
+		let fd = parent.recv_fd().await.expect("no file descriptor");
+		let sock = UnixSeqpacket::try_from(fd).unwrap();
+		proc::Peer::from_stream(sock)
 	};
-	let mut fs = proc::Peer::from_stream(fs);
 
 	loop {
-		let mut buffer: [u8; 128] = [0; 128];
-		let (_, ancillary) = parent.socket()
-			.recv_vectored_with_ancillary(&mut [], &mut buffer).await.expect("recv");
-		let mut message = ancillary.messages();
-		let stream = match message.next() {
-			Some(AncillaryMessage::FileDescriptors(fds)) => {
-				let fd = fds.get(0).expect("no file descriptor");
-				unsafe {
-					let stream = std::net::TcpStream::from_raw_fd(fd.as_raw_fd());
-					TcpStream::from_std(stream).unwrap()
-				}
-			}
-			_ => panic!("bad message"),
+		let stream = {
+			let fd = parent.recv_fd().await.expect("no file descriptor");
+			let stream = std::net::TcpStream::from(fd);
+			TcpStream::from_std(stream).unwrap()
 		};
 		let mut reader = BufReader::new(stream);
 		let request = http::Request::read(&mut reader).await.expect("shit");
@@ -103,13 +84,12 @@ pub async fn main() -> ! {
 		let message: fs::OpenResponse = serde_cbor::from_slice(&buf).expect("serde");
 		let (response, mut file) = match message {
 			fs::OpenResponse::File => {
-				let mut messages = ancillary.messages();
+				let mut messages = ancillary.into_messages();
 				let file = match messages.next() {
-					Some(AncillaryMessage::FileDescriptors(fds)) => {
-						let fd = fds.get(0).expect("no file descriptors");
-						unsafe {
-							tokio::fs::File::from_raw_fd(fd.as_raw_fd())
-						}
+					Some(OwnedAncillaryMessage::FileDescriptors(mut fds)) => {
+						let fd = fds.next().expect("no file descriptors");
+						let file = std::fs::File::from(fd);
+						tokio::fs::File::from_std(file)
 					}
 					_ => panic!("bad message"),
 				};
