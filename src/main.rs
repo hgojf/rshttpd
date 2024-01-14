@@ -1,13 +1,16 @@
 mod proc;
 mod http;
+mod tls;
 
 mod fs;
 mod client;
+mod crypto;
 
 use tokio_seqpacket::UnixSeqpacket;
 use pledge::pledge;
-use tokio::net::TcpListener;
+use tokio::net::{UnixStream, TcpListener};
 use tokio::signal::unix::{signal, SignalKind};
+use std::os::fd::OwnedFd;
 
 const PROGRAM_PATH: &'static str = "/home/user/src/personal/httpd-rs/target/debug/httpd";
 
@@ -26,7 +29,15 @@ async fn main() {
 		if arg == "-c" {
 			client::main().await;
 		}
+		if arg == "-e" {
+			crypto::main().await;
+		}
 	}
+
+	let certfile = tokio::fs::File::open("./cert.pem").await.expect("open");
+	let certfile = certfile.into_std().await;
+	let keyfile = tokio::fs::File::open("./key.pem").await.expect("open");
+	let keyfile = keyfile.into_std().await;
 
 	unveil::unveil(PROGRAM_PATH, "x").expect("unveil");
 	pledge("stdio sendfd proc exec inet dns", None).expect("pledge");
@@ -34,6 +45,8 @@ async fn main() {
 	let mut fs = proc::ProcessBuilder::new(PROGRAM_PATH, "httpd: filesystem", "-f")
 		.build().expect("exec");
 	let mut client = proc::ProcessBuilder::new(PROGRAM_PATH, "httpd: client", "-c")
+		.build().expect("exec");
+	let mut crypto = proc::ProcessBuilder::new(PROGRAM_PATH, "httpd: crypto", "-e")
 		.build().expect("exec");
 
 	pledge("stdio sendfd proc inet dns", None).expect("pledge");
@@ -44,6 +57,8 @@ async fn main() {
 			//fs::Location::new("/var/www/htdocs/bgplg/".to_string(), true),
 		]),
 	};
+
+	crypto.peer().send_fds(&[certfile.into(), keyfile.into()]).await.expect("send_fd");
 
 	let message = fs::RecvMessageMain::Config(server.fs);
 	let buf = serde_cbor::to_vec(&message).expect("fuck you");
@@ -74,11 +89,20 @@ async fn main() {
 					Err(_) => continue,
 				};
 				let sock = sock.into_std().expect("into_std");
-				client.peer().send_fd(sock).await.expect("send_fd");
+				let sock = OwnedFd::from(sock);
+				let (a, b) = UnixStream::pair().expect("socketpair");
+				let (a, b) = {
+					let a = a.into_std().unwrap();
+					let b = b.into_std().unwrap();
+					(OwnedFd::from(a), OwnedFd::from(b))
+				};
+				crypto.peer().send_fds(&[sock, a]).await.expect("send_fds");
+				client.peer().send_fd(b).await.expect("send_fd");
 			}
 		}
 	};
 
+	crypto.end().await.expect("wait");
 	fs.end().await.expect("wait");
 	client.end().await.expect("wait");
 }
