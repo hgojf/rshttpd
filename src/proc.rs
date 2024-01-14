@@ -74,6 +74,9 @@ pub struct Peer {
 }
 
 impl Peer {
+	/* This should be safe so long as this process was launched using the
+	 * Process struct
+	 */
 	pub unsafe fn get_parent() -> Self {
 		Self {
 			socket: UnixSeqpacket::from_raw_fd(PROCESS_FD).expect("from_raw_fd"),
