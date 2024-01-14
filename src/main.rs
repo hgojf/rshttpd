@@ -55,7 +55,7 @@ async fn main() {
 	let server = Server {
 		fs: fs::Server::new(vec![
 			fs::Location::new("/".to_string(), false),
-			//fs::Location::new("/var/www/htdocs/bgplg/".to_string(), true),
+			fs::Location::new("/private/".to_string(), true),
 		]),
 	};
 

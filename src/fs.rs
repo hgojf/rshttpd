@@ -23,7 +23,12 @@ pub async fn main() -> ! {
 	};
 
 	for location in &server.locations {
-		unveil(&location.path, "r").expect("unveil");
+		if location.blocked {
+			unveil(&location.path, "").expect("unveil");
+		}
+		else {
+			unveil(&location.path, "r").expect("unveil");
+		}
 	}
 	pledge("stdio sendfd recvfd rpath", None).expect("pledge");
 
