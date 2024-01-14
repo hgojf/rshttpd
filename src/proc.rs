@@ -1,7 +1,7 @@
 use tokio_seqpacket::{ancillary::AncillaryMessageWriter, UnixSeqpacket};
 use tokio::process;
 use tokio_command_fds::{CommandFdExt, FdMapping};
-use std::os::fd::BorrowedFd;
+use std::os::fd::{OwnedFd, AsFd};
 use nix::sys::signal;
 
 const PROCESS_FD: std::os::fd::RawFd = 3;
@@ -74,10 +74,14 @@ impl Peer {
 		self.socket.send(bytes).await?;
 		Ok(())
 	}
-	pub async fn send_fd (&mut self, fd: BorrowedFd<'_>) -> std::io::Result<()> {
+	pub async fn send_fd<T> (&mut self, fd: T)
+	-> std::io::Result<()> 
+	where OwnedFd: From<T>
+	{
+		let fd = OwnedFd::from(fd);
 		let mut buf: [u8; 128] = [0; 128];
 		let mut writer = AncillaryMessageWriter::new(&mut buf);
-		writer.add_fds(&[fd]).expect("add_fds");
+		writer.add_fds(&[fd.as_fd()]).expect("add_fds");
 		self.socket.send_vectored_with_ancillary(&[], &mut writer).await?;
 		Ok(())
 	}

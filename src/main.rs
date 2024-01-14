@@ -5,7 +5,6 @@ mod fs;
 mod client;
 
 use tokio_seqpacket::UnixSeqpacket;
-use std::os::fd::AsFd;
 use pledge::pledge;
 use tokio::net::TcpListener;
 use tokio::signal::unix::{signal, SignalKind};
@@ -51,8 +50,8 @@ async fn main() {
 	fs.peer().send(&buf).await.expect("write");
 
 	let (a, b) = UnixSeqpacket::pair().expect("socketpair");
-	fs.peer().send_fd(a.as_fd()).await.expect("send_fd");
-	client.peer().send_fd(b.as_fd()).await.expect("send_fd");
+	fs.peer().send_fd(a).await.expect("send_fd");
+	client.peer().send_fd(b).await.expect("send_fd");
 
 	let socket = TcpListener::bind("127.0.0.1:1999").await.unwrap();
 
@@ -74,7 +73,8 @@ async fn main() {
 					Ok((sock, _)) => sock,
 					Err(_) => continue,
 				};
-				client.peer().send_fd(sock.as_fd()).await.expect("send_fd");
+				let sock = sock.into_std().expect("into_std");
+				client.peer().send_fd(sock).await.expect("send_fd");
 			}
 		}
 	};
