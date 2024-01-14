@@ -62,7 +62,7 @@ pub async fn main() -> ! {
 }
 
 impl Server<'_> {
-	async fn handle_request(&self, peer: &mut proc::Peer, request: &RecvMessageClient) 
+	async fn handle_request(&self, peer: &mut proc::Peer, request: &RecvMessageClient<'_>) 
 	-> std::io::Result<()> {
 		match request {
 			RecvMessageClient::Open(open) => return self.handle_open(peer, open).await,
@@ -215,8 +215,8 @@ pub enum RecvMessageMain<'a> {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub enum RecvMessageClient {
-	Open(String),
+pub enum RecvMessageClient<'a> {
+	Open(&'a str),
 }
 
 #[cfg(test)]

@@ -70,7 +70,7 @@ pub async fn main() -> ! {
 		let mut reader = BufReader::new(stream);
 		let request = http::Request::read(&mut reader).await.expect("shit");
 
-		let message = fs::RecvMessageClient::Open(request.path().to_string());
+		let message = fs::RecvMessageClient::Open(request.path());
 		let vec = serde_cbor::to_vec(&message).expect("serde");
 		fs.send(&vec).await.expect("send");
 
