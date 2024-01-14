@@ -180,6 +180,8 @@ impl Server<'_> {
 		best
 	}
 	async fn open(&self, path: &str) -> Result<File, FileError> {
+		let path = std::path::Path::new(path).canonicalize()?;
+		let path = path.to_str().expect("Not valid UTF-8?");
 		match self.matching(path) {
 			None => {
 				return Err(FileError::NotAllowed);
