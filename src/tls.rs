@@ -15,7 +15,6 @@ pub fn keys_from_file(file: std::fs::File) -> Result<PrivateKeyDer<'static>, std
 	let mut keys = rustls_pemfile::pkcs8_private_keys(&mut reader);
 	
 	let key = keys.next()
-		.unwrap()?;
-//		.ok_or(std::io::ErrorKind::NotFound.into())?;
+		.ok_or::<std::io::Error>(std::io::ErrorKind::NotFound.into())??;
 	Ok(key.into())
 }
