@@ -76,6 +76,16 @@ impl Peer {
 		self.socket.send(bytes).await?;
 		Ok(())
 	}
+	pub async fn send_fds (&mut self, fds: &[OwnedFd])
+	-> std::io::Result<()> 
+	{
+		let fds: Vec<_> = fds.iter().map(|fd| fd.as_fd()).collect();
+		let mut buf: [u8; 128] = [0; 128];
+		let mut writer = AncillaryMessageWriter::new(&mut buf);
+		writer.add_fds(&fds).expect("add_fds");
+		self.socket.send_vectored_with_ancillary(&[], &mut writer).await?;
+		Ok(())
+	}
 	pub async fn send_fd<T> (&mut self, fd: T)
 	-> std::io::Result<()> 
 	where OwnedFd: From<T>
