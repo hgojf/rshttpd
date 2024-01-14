@@ -31,9 +31,9 @@ async fn main() {
 	unveil::unveil(PROGRAM_PATH, "x").expect("unveil");
 	pledge("stdio sendfd proc exec inet dns", None).expect("pledge");
 
-	let mut fs = proc::ProcessBuilder::new(PROGRAM_PATH, "-f")
+	let mut fs = proc::ProcessBuilder::new(PROGRAM_PATH, "httpd: filesystem", "-f")
 		.build().expect("exec");
-	let mut client = proc::ProcessBuilder::new(PROGRAM_PATH, "-c")
+	let mut client = proc::ProcessBuilder::new(PROGRAM_PATH, "httpd: client", "-c")
 		.build().expect("exec");
 
 	pledge("stdio sendfd proc inet dns", None).expect("pledge");

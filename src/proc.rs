@@ -8,17 +8,19 @@ const PROCESS_FD: std::os::fd::RawFd = 3;
 
 pub struct ProcessBuilder<'a> {
 	path: &'a str,
+	name: &'a str,
 	arg: &'a str,
 }
 
 impl <'a> ProcessBuilder<'a> {
-	pub fn new(path: &'a str, arg: &'a str) -> Self {
-		Self { path, arg }
+	pub fn new(path: &'a str, name: &'a str, arg: &'a str) -> Self {
+		Self { path, name, arg }
 	}
 	pub fn build(self) -> std::io::Result<Process> {
 		let (a, socket) = UnixSeqpacket::pair()?;
 		let mut command = process::Command::new(self.path);
 		command.kill_on_drop(true);
+		command.arg0(self.name);
 		command.arg(self.arg);
 		command.fd_mappings(vec![
 			FdMapping {
