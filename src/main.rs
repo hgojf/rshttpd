@@ -14,8 +14,8 @@ use std::os::fd::OwnedFd;
 
 const PROGRAM_PATH: &'static str = "/home/user/src/personal/httpd-rs/target/debug/httpd";
 
-struct Server {
-	fs: fs::Server,
+struct Server<'a> {
+	fs: fs::Server<'a>,
 }
 
 #[tokio::main]
@@ -54,8 +54,8 @@ async fn main() {
 
 	let server = Server {
 		fs: fs::Server::new(vec![
-			fs::Location::new("/".to_string(), false),
-			fs::Location::new("/private/".to_string(), true),
+			fs::Location::new("/", false),
+			fs::Location::new("/private/", true),
 		]),
 	};
 
