@@ -30,6 +30,7 @@ pub enum Error {
 	Missing,
 	BadVersion,
 	BadHeader,
+	BadPath,
 	TooMuch,
 	BadMethod,
 }
@@ -57,6 +58,9 @@ impl Request {
 		};
 		let path = words.next()
 			.ok_or(Error::Missing)?;
+		if !path.starts_with("/") {
+			return Err(Error::BadPath);
+		}
 
 		let version = words.next()
 			.ok_or(Error::Malformed)?;
