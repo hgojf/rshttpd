@@ -100,7 +100,6 @@ pub async fn main() -> ! {
 			.recv_vectored_with_ancillary(&mut [slice], &mut anbuf)
 			.await.expect("recv");
 		let buf = &buf[..len];
-		eprintln!("got: {:?}", buf);
 		let message: fs::OpenResponse = serde_cbor::from_slice(&buf).expect("serde");
 		let (response, mut file) = match message {
 			fs::OpenResponse::File => {

@@ -80,7 +80,6 @@ impl Server {
 		let response = self.open(path).await;
 		let resp: OpenResponse = (&response).into();
 		let buf = serde_cbor::to_vec(&resp).expect("serde_cbor");
-		eprintln!("sent: {:?}", &buf);
 	
 		let slice = std::io::IoSlice::new(&buf);
 		let mut buf: [u8; 128] = [0; 128];
