@@ -9,7 +9,7 @@ use std::sync::Arc;
 pub async fn main() -> ! {
 	pledge("stdio recvfd", None).expect("pledge");
 
-	let mut parent = unsafe {
+	let parent = unsafe {
 		proc::Peer::get_parent()
 	};
 

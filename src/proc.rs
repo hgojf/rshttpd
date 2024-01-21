@@ -85,8 +85,8 @@ impl Peer {
 	pub fn from_stream(socket: UnixSeqpacket) -> Self {
 		Self { socket }
 	}
-	pub fn socket(&mut self) -> &mut UnixSeqpacket {
-		&mut self.socket
+	pub fn socket(&self) -> &UnixSeqpacket {
+		&self.socket
 	}
 	pub async fn recv_fd(&mut self) -> std::io::Result<OwnedFd> {
 		let mut buffer: [u8; 128] = [0; 128];

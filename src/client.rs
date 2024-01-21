@@ -56,7 +56,7 @@ pub async fn main() -> ! {
 		proc::Peer::get_parent()
 	};
 	
-	let mut fs = {
+	let fs = {
 		let fd = parent.recv_fd().await.expect("no file descriptor");
 		let sock = UnixSeqpacket::try_from(fd).unwrap();
 		proc::Peer::from_stream(sock)
