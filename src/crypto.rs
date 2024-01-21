@@ -48,7 +48,7 @@ pub async fn main() -> ! {
 			.recv_vectored_with_ancillary(&mut [], &mut buffer) => {
 				let (_, ancillary) = read.expect("bad message");
 				let mut message = ancillary.into_messages();
-				let (mut client, mut server) = match message.next() {
+				let (client, mut server) = match message.next() {
 					Some(OwnedAncillaryMessage::FileDescriptors(mut fds)) => {
 						let cfd = fds.next().expect("no file descriptor");
 						let sfd = fds.next().expect("no file descriptor");

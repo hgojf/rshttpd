@@ -41,7 +41,7 @@ impl File {
 			Self::Error(http::ResponseCode::InternalError) => {
 				writer.write(b"500").await?;
 			}
-			Self::Error(error) => {
+			Self::Error(_) => {
 				writer.write(b"123").await?;
 			}
 		}
