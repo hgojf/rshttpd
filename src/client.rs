@@ -4,6 +4,7 @@ use tokio_seqpacket::ancillary::OwnedAncillaryMessage;
 use tokio::net::TcpStream;
 use tokio::io::{AsyncWriteExt, BufReader};
 use pledge::pledge;
+use std::sync::Arc;
 
 enum File {
 	File(tokio::fs::File),
@@ -67,21 +68,38 @@ pub async fn main() -> ! {
 			let stream = std::net::TcpStream::from(fd);
 			TcpStream::from_std(stream).unwrap()
 		};
-		let mut reader = BufReader::new(stream);
-		let request = http::Request::read(&mut reader).await.expect("shit");
+		let client = Client {
+			client: stream, fs: fs.socket()
+		};
+		if let Err(err) = client.run().await {
+			eprintln!("{:?}", err);
+		}
+	};
+}
+
+struct Client<'a> {
+	fs: &'a UnixSeqpacket,
+	client: TcpStream,
+}
+
+impl Client<'_> {
+	async fn run(self) -> Result<(), http::Error> {
+		let mut reader = BufReader::new(self.client);
+		let request = http::Request::read(&mut reader).await?;
 
 		let message = fs::RecvMessageClient::Open(request.path());
 		let vec = serde_cbor::to_vec(&message).expect("serde");
-		fs.send(&vec).await.expect("send");
+		self.fs.send(&vec).await.expect("send");
 
 		let mut anbuf: [u8; 128] = [0; 128];
 		let mut buf: [u8; 1024] = [0; 1024];
 		let slice = std::io::IoSliceMut::new(&mut buf);
-		let (len, ancillary) = fs.socket()
+		let (len, ancillary) = self.fs
 			.recv_vectored_with_ancillary(&mut [slice], &mut anbuf)
 			.await.expect("recv");
 		let buf = &buf[..len];
 		let message: fs::OpenResponse = serde_cbor::from_slice(&buf).expect("serde");
+
 		let (response, mut file) = match message {
 			fs::OpenResponse::File => {
 				let mut messages = ancillary.into_messages();
@@ -121,5 +139,6 @@ pub async fn main() -> ! {
 		let response = http::Response::new(response, len);
 		response.write(&mut reader).await.expect("send");
 		file.write(&mut reader).await.expect("send");
-	};
+		Ok(())
+	}
 }

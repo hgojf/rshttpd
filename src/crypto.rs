@@ -48,7 +48,7 @@ pub async fn main() -> ! {
 			.recv_vectored_with_ancillary(&mut [], &mut buffer) => {
 				let (_, ancillary) = read.expect("bad message");
 				let mut message = ancillary.into_messages();
-				let (client, mut server) = match message.next() {
+				let (client, server) = match message.next() {
 					Some(OwnedAncillaryMessage::FileDescriptors(mut fds)) => {
 						let cfd = fds.next().expect("no file descriptor");
 						let sfd = fds.next().expect("no file descriptor");
@@ -61,13 +61,33 @@ pub async fn main() -> ! {
 					}
 					_ => panic!("bad message"),
 				};
-				let stream = tokio_rustls::TlsAcceptor::from(config.clone());
-				let mut client = stream.accept(client).await.unwrap();
-				tokio::io::copy_bidirectional(&mut client, &mut server).await.unwrap();
-				client.flush().await.unwrap();
+				let acceptor = tokio_rustls::TlsAcceptor::from(config.clone());
+				let stream = CryptoStream {
+					client, server, acceptor
+				};
+				tokio::spawn(async move {
+					if let Err(err) = stream.run().await {
+						eprintln!("{err}");
+					}
+				});
 			}
 		}
 	}
 
 	std::process::exit(0);
+}
+
+struct CryptoStream {
+	client: TcpStream,
+	server: UnixStream,
+	acceptor: tokio_rustls::TlsAcceptor,
+}
+
+impl CryptoStream {
+	async fn run(mut self) -> std::io::Result<()> {
+		let mut client = self.acceptor.accept(self.client).await?;
+		tokio::io::copy_bidirectional(&mut client, &mut self.server).await?;
+		client.flush().await?;
+		Ok(())
+	}
 }
