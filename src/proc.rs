@@ -158,4 +158,24 @@ impl Peer {
 			_ => return Err(std::io::ErrorKind::NotFound.into()),
 		}
 	}
+	pub async fn recv_with_fds(&self, data: &mut [u8]) 
+	-> std::io::Result<(usize, (OwnedFd, OwnedFd))> 
+	{
+		let mut buffer: [u8; 128] = [0; 128];
+		let slice = std::io::IoSliceMut::new(data);
+		let (len, ancillary) = self.socket
+			.recv_vectored_with_ancillary(&mut [slice], &mut buffer).await?;
+		let mut messages = ancillary.into_messages();
+		let message = messages.next();
+		match message {
+			Some(OwnedAncillaryMessage::FileDescriptors(mut fds)) => {
+				let fd = fds.next()
+					.ok_or::<std::io::Error>(std::io::ErrorKind::NotFound.into())?;
+				let fd2 = fds.next()
+					.ok_or::<std::io::Error>(std::io::ErrorKind::NotFound.into())?;
+				return Ok((len, (fd, fd2)));
+			}
+			_ => return Err(std::io::ErrorKind::NotFound.into()),
+		}
+	}
 }
