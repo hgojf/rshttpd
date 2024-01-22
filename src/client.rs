@@ -51,7 +51,7 @@ impl File {
 }
 
 pub async fn main() -> ! {
-	pledge("stdio recvfd", None).expect("pledge");
+	pledge("stdio recvfd sendfd", None).expect("pledge");
 	let mut parent = unsafe {
 		proc::Peer::get_parent()
 	};
@@ -59,7 +59,7 @@ pub async fn main() -> ! {
 	let fs = {
 		let fd = parent.recv_fd().await.expect("no file descriptor");
 		let sock = UnixSeqpacket::try_from(fd).unwrap();
-		proc::Peer::from_stream(sock)
+		Arc::new(proc::Peer::from_stream(sock))
 	};
 
 	loop {
@@ -68,12 +68,15 @@ pub async fn main() -> ! {
 			let stream = std::net::TcpStream::from(fd);
 			TcpStream::from_std(stream).unwrap()
 		};
-		let client = Client {
-			client: stream, fs: &fs,
-		};
-		if let Err(err) = client.run().await {
-			eprintln!("{:?}", err);
-		}
+		let fs = fs.clone();
+		tokio::spawn(async move {
+			let client = Client {
+				client: stream, fs: &fs,
+			};
+			if let Err(err) = client.run().await {
+				eprintln!("{:?}", err);
+			}
+		});
 	};
 }
 
@@ -87,14 +90,15 @@ impl Client<'_> {
 		let mut reader = BufReader::new(self.client);
 		let request = http::Request::read(&mut reader).await?;
 
+		let (mine, theirs) = UnixSeqpacket::pair()?;
 		let message = fs::RecvMessageClient::Open(request.path());
 		let vec = serde_cbor::to_vec(&message).expect("serde");
-		self.fs.send(&vec).await.expect("send");
+		self.fs.send_with_fd(theirs, &vec).await?;
 
 		let mut anbuf: [u8; 128] = [0; 128];
 		let mut buf: [u8; 1024] = [0; 1024];
 		let slice = std::io::IoSliceMut::new(&mut buf);
-		let (len, ancillary) = self.fs.socket()
+		let (len, ancillary) = mine
 			.recv_vectored_with_ancillary(&mut [slice], &mut anbuf)
 			.await.expect("recv");
 		let buf = &buf[..len];

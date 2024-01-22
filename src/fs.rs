@@ -7,6 +7,7 @@ use tokio_seqpacket::ancillary::{AncillaryMessageWriter};
 use std::os::fd::{AsFd, OwnedFd};
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::fs;
+use std::sync::Arc;
 
 pub async fn main() -> ! {
 	pledge("stdio sendfd recvfd rpath unveil", None).expect("pledge");
@@ -19,7 +20,7 @@ pub async fn main() -> ! {
 	let message: RecvMessageMain = serde_cbor::from_slice(&buf[..len]).expect("idk");
 
 	let server = match message {
-		RecvMessageMain::Config(server) => server,
+		RecvMessageMain::Config(server) => Arc::new(server),
 	};
 
 	for location in &server.locations {
@@ -38,7 +39,7 @@ pub async fn main() -> ! {
 		proc::Peer::from_stream(seq)
 	};
 
-	pledge("stdio sendfd rpath", None).expect("pledge");
+	pledge("stdio sendfd recvfd rpath", None).expect("pledge");
 
 	let mut buf: [u8; 4096] = [0; 4096];
 
@@ -46,11 +47,25 @@ pub async fn main() -> ! {
 
 	loop {
 		tokio::select! {
-			len = peer.socket().recv(&mut buf) => {
-				let buf = &buf[..len.unwrap()];
+			resp = peer.recv_with_fd(&mut buf) => {
+				let server = server.clone();
+				tokio::spawn(async move {
+				let (len, stream) = match resp {
+					Ok((len, fd)) => {
+						let stream = UnixSeqpacket::try_from(fd).unwrap();
+						(len, stream)
+					}
+					Err(err) => {
+						eprintln!("error: {err}");
+						return;
+					}
+				};
+				let buf = &buf[..len];
+				let mut peer = proc::Peer::from_stream(stream);
 				let message: RecvMessageClient = serde_cbor::from_slice(&buf)
 					.expect("serde_cbor");
 				server.handle_request(&mut peer, &message).await.expect("handle_request");
+				});
 			}
 			_ = sigterm.recv() => { 
 				break;
