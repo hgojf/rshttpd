@@ -69,7 +69,7 @@ pub async fn main() -> ! {
 			TcpStream::from_std(stream).unwrap()
 		};
 		let client = Client {
-			client: stream, fs: fs.socket()
+			client: stream, fs: &fs,
 		};
 		if let Err(err) = client.run().await {
 			eprintln!("{:?}", err);
@@ -78,7 +78,7 @@ pub async fn main() -> ! {
 }
 
 struct Client<'a> {
-	fs: &'a UnixSeqpacket,
+	fs: &'a proc::Peer,
 	client: TcpStream,
 }
 
@@ -94,7 +94,7 @@ impl Client<'_> {
 		let mut anbuf: [u8; 128] = [0; 128];
 		let mut buf: [u8; 1024] = [0; 1024];
 		let slice = std::io::IoSliceMut::new(&mut buf);
-		let (len, ancillary) = self.fs
+		let (len, ancillary) = self.fs.socket()
 			.recv_vectored_with_ancillary(&mut [slice], &mut anbuf)
 			.await.expect("recv");
 		let buf = &buf[..len];

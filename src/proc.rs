@@ -103,7 +103,7 @@ impl Peer {
 			_ => return Err(std::io::ErrorKind::NotFound.into()),
 		}
 	}
-	pub async fn send(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+	pub async fn send(&self, bytes: &[u8]) -> std::io::Result<()> {
 		self.socket.send(bytes).await?;
 		Ok(())
 	}
