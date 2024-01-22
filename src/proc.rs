@@ -64,8 +64,8 @@ impl Process {
 		self.child.wait().await?;
 		Ok(())
 	}
-	pub fn peer(&mut self) -> &mut Peer {
-		&mut self.peer
+	pub fn peer(&self) -> &Peer {
+		&self.peer
 	}
 }
 
@@ -107,7 +107,7 @@ impl Peer {
 		self.socket.send(bytes).await?;
 		Ok(())
 	}
-	pub async fn send_fds (&mut self, fds: &[OwnedFd])
+	pub async fn send_fds (&self, fds: &[OwnedFd])
 	-> std::io::Result<()> 
 	{
 		let fds: Vec<_> = fds.iter().map(|fd| fd.as_fd()).collect();
@@ -117,7 +117,7 @@ impl Peer {
 		self.socket.send_vectored_with_ancillary(&[], &mut writer).await?;
 		Ok(())
 	}
-	pub async fn send_fd<T> (&mut self, fd: T)
+	pub async fn send_fd<T> (&self, fd: T)
 	-> std::io::Result<()> 
 	where OwnedFd: From<T>
 	{
