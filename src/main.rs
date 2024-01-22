@@ -14,8 +14,8 @@ use std::os::fd::OwnedFd;
 
 const PROGRAM_PATH: &'static str = "/home/user/src/personal/httpd-rs/target/debug/httpd";
 
-struct Server<'a> {
-	fs: fs::Server<'a>,
+struct Server {
+	fs: fs::Server,
 }
 
 #[tokio::main]

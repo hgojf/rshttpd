@@ -61,7 +61,7 @@ pub async fn main() -> ! {
 	std::process::exit(0);
 }
 
-impl Server<'_> {
+impl Server {
 	async fn handle_request(&self, peer: &mut proc::Peer, request: &RecvMessageClient<'_>) 
 	-> std::io::Result<()> {
 		match request {
@@ -106,25 +106,24 @@ impl Server<'_> {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Location<'a> {
-	path: &'a str,
+pub struct Location {
+	path: String,
 	blocked: bool,
 }
 
-impl <'a> Location<'a> {
-	pub fn new(path: &'a str, blocked: bool) -> Self {
-		Self { path, blocked }
+impl Location {
+	pub fn new(path: &str, blocked: bool) -> Self {
+		Self { path: path.to_string(), blocked }
 	}
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Server<'a> {
-	#[serde(borrow)]
-	locations: Vec<Location<'a>>,
+pub struct Server {
+	locations: Vec<Location>,
 }
 
-impl <'a> Server<'a> {
-	pub fn new(locations: Vec<Location<'a>>) -> Self {
+impl Server {
+	pub fn new(locations: Vec<Location>) -> Self {
 		Self { locations }
 	}
 }
@@ -170,7 +169,7 @@ enum File {
 /* The path has to start with the location
  * longest match wins
  */
-impl Server<'_> {
+impl Server {
 	fn matching<'a> (&'a self, path: &str) -> Option<&'a Location> {
 		let mut bestlen = 0;
 		let mut best = None;
@@ -221,9 +220,8 @@ impl Server<'_> {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub enum RecvMessageMain<'a> {
-	#[serde(borrow)]
-	Config(Server<'a>),
+pub enum RecvMessageMain {
+	Config(Server),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
