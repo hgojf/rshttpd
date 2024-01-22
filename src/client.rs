@@ -70,12 +70,23 @@ pub async fn main() -> ! {
 		};
 		let fs = fs.clone();
 		tokio::spawn(async move {
-			let client = Client {
+			let mut client = Client {
 				client: stream, fs: &fs,
 			};
-			if let Err(err) = client.run().await {
-				eprintln!("{:?}", err);
-			}
+			const KEEPALIVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+			loop {
+				let Ok(result) = tokio::time::timeout(KEEPALIVE_TIMEOUT, client.run()).await 
+				else {
+					return;
+				};
+				if let Err(err) = result {
+					match err {
+						http::Error::Missing => {}, /* EOF (probably) */
+						other => eprintln!("{:?}", other),
+					}
+					return;
+				}
+			};
 		});
 	};
 }
@@ -86,8 +97,8 @@ struct Client<'a> {
 }
 
 impl Client<'_> {
-	async fn run(self) -> Result<(), http::Error> {
-		let mut reader = BufReader::new(self.client);
+	async fn run(&mut self) -> Result<(), http::Error> {
+		let mut reader = BufReader::new(&mut self.client);
 		let request = http::Request::read(&mut reader).await?;
 
 		let (mine, theirs) = UnixSeqpacket::pair()?;
