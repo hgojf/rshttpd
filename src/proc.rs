@@ -128,4 +128,34 @@ impl Peer {
 		self.socket.send_vectored_with_ancillary(&[], &mut writer).await?;
 		Ok(())
 	}
+	pub async fn send_with_fd<T> (&self, fd: T, data: &[u8])
+	-> std::io::Result<()> 
+	where OwnedFd: From<T>
+	{
+		let fd = OwnedFd::from(fd);
+		let mut buf: [u8; 128] = [0; 128];
+		let slice = std::io::IoSlice::new(data);
+		let mut writer = AncillaryMessageWriter::new(&mut buf);
+		writer.add_fds(&[fd.as_fd()]).expect("add_fds");
+		self.socket.send_vectored_with_ancillary(&[slice], &mut writer).await?;
+		Ok(())
+	}
+	pub async fn recv_with_fd(&mut self, data: &mut [u8]) 
+	-> std::io::Result<(usize, OwnedFd)> 
+	{
+		let mut buffer: [u8; 128] = [0; 128];
+		let slice = std::io::IoSliceMut::new(data);
+		let (len, ancillary) = self.socket
+			.recv_vectored_with_ancillary(&mut [slice], &mut buffer).await?;
+		let mut messages = ancillary.into_messages();
+		let message = messages.next();
+		match message {
+			Some(OwnedAncillaryMessage::FileDescriptors(mut fds)) => {
+				let fd = fds.next()
+					.ok_or::<std::io::Error>(std::io::ErrorKind::NotFound.into())?;
+				return Ok((len, fd));
+			}
+			_ => return Err(std::io::ErrorKind::NotFound.into()),
+		}
+	}
 }
