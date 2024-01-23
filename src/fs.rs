@@ -251,8 +251,8 @@ mod tests {
 	fn matching() {
 		let server = Server {
 			locations: vec![
-				Location { path: "/", blocked: false },
-				Location { path: "/home/", blocked: true },
+				Location { path: "/".to_string(), blocked: false },
+				Location { path: "/home/".to_string(), blocked: true },
 			],
 		};
 		let matched = server.matching("/tmp/normalstuff").unwrap();
