@@ -103,9 +103,9 @@ impl Manager {
 
 		let fs = proc::ProcessBuilder::new(prog, "httpd: filesystem", "-f")
 			.build()?;
-		let client = proc::ProcessBuilder::new(prog, "httpd: filesystem", "-f")
+		let client = proc::ProcessBuilder::new(prog, "httpd: filesystem", "-c")
 			.build()?;
-		let crypto = proc::ProcessBuilder::new(prog, "httpd: filesystem", "-f")
+		let crypto = proc::ProcessBuilder::new(prog, "httpd: filesystem", "-e")
 			.build()?;
 
 		crypto.peer().send_fds(&[certfile.into(), keyfile.into()]).await?;
