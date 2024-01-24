@@ -35,8 +35,12 @@ async fn main() {
 	}
 
 	let config = ManagerConfig {
-		cert: "./cert.pem",
-		key: "./key.pem",
+		tls: Some(
+			TlsConfig {
+				cert: "./cert.pem",
+				key: "./key.pem",
+			}
+		),
 		fs: fs::Server::new(vec![
 			fs::Location::new("/", false),
 			fs::Location::new("/private/", true),
@@ -78,17 +82,26 @@ async fn main() {
 	token.cancel();
 }
 
-struct ManagerConfig<'a> {
+struct TlsConfig<'a> {
 	cert: &'a str,
 	key: &'a str,
+}
+
+struct ManagerConfig<'a> {
+	tls: Option<TlsConfig<'a>>,
 	fs: fs::Server,
 	addr: std::net::SocketAddr,
+}
+
+enum Acceptor {
+	Tls(proc::Process),
+	Plain,
 }
 
 struct Manager {
 	fs: proc::Process, 
 	client: proc::Process,
-	crypto: proc::Process,
+	acceptor: Acceptor,
 
 	listener: TcpListener,
 }
@@ -98,17 +111,25 @@ struct Manager {
  */
 impl Manager {
 	async fn new(prog: &str, config: ManagerConfig<'_>) -> std::io::Result<Self> {
-		let certfile = tokio::fs::File::open(config.cert).await?.into_std().await;
-		let keyfile = tokio::fs::File::open(config.key).await?.into_std().await;
 
 		let fs = proc::ProcessBuilder::new(prog, "httpd: filesystem", "-f")
 			.build()?;
 		let client = proc::ProcessBuilder::new(prog, "httpd: filesystem", "-c")
 			.build()?;
-		let crypto = proc::ProcessBuilder::new(prog, "httpd: filesystem", "-e")
-			.build()?;
+		let acceptor = match config.tls {
+			Some(tls) => {
+				let certfile = tokio::fs::File::open(tls.cert).await?.into_std().await;
+				let keyfile = tokio::fs::File::open(tls.key).await?.into_std().await;
+				let crypto = proc::ProcessBuilder::new(prog, "httpd: filesystem", "-e")
+					.build()?;
 
-		crypto.peer().send_fds(&[certfile.into(), keyfile.into()]).await?;
+				crypto.peer().send_fds(&[certfile.into(), keyfile.into()]).await?;
+				Acceptor::Tls(crypto)
+			}
+			None => {
+				Acceptor::Plain
+			}
+		};
 
 		let message = fs::RecvMessageMain::Config(config.fs);
 		let buf = serde_cbor::to_vec(&message).expect("serde");
@@ -121,24 +142,31 @@ impl Manager {
 
 		let listener = TcpListener::bind(config.addr).await?;
 		Ok(Self {
-			fs, client, crypto, listener
+			fs, client, acceptor, listener
 		})
 	}
 
 	async fn serve(&self) -> std::io::Result<()> {
 		let (con, _) = self.listener.accept().await?;
 		let con = OwnedFd::from(con.into_std()?);
-		let (a, b) = {
-			let (a, b) = UnixStream::pair()?;
-			(OwnedFd::from(a.into_std()?), OwnedFd::from(b.into_std()?))
-		};
-		self.crypto.peer().send_fds(&[con, a]).await?;
-		self.client.peer().send_fds(&[b]).await?;
+		match &self.acceptor {
+			Acceptor::Plain => {
+				self.client.peer().send_fds(&[con]).await?;
+			}
+			Acceptor::Tls(tls) => {
+				let (a, b) = UnixStream::pair()?;
+				let (a, b) = (a.into_std()?, b.into_std()?);
+				tls.peer().send_fds(&[con, a.into()]).await?;
+				self.client.peer().send_fds(&[b.into()]).await?;
+			}
+		}
 		Ok(())
 	}
 
 	async fn end(self) -> std::io::Result<()> {
-		self.crypto.end().await?;
+		if let Acceptor::Tls(crypto) = self.acceptor {
+			crypto.end().await?;
+		}
 		self.fs.end().await?;
 		self.client.end().await?;
 		Ok(())
