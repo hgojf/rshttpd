@@ -3,6 +3,7 @@ use http::Content;
 use tokio_seqpacket::UnixSeqpacket;
 use tokio_seqpacket::ancillary::OwnedAncillaryMessage;
 use tokio::net::TcpStream;
+use tokio::signal::unix::{signal, SignalKind};
 use tokio::io::{AsyncWrite, AsyncWriteExt, BufReader};
 use pledge::pledge;
 use std::sync::Arc;
@@ -42,33 +43,39 @@ pub async fn main() -> ! {
 		Arc::new(proc::Peer::from_stream(sock))
 	};
 
+	let mut sigint = signal(SignalKind::interrupt()).expect("signal");
+
 	loop {
-		let stream = {
-			let fd = parent.recv_fd().await.expect("no file descriptor");
-			let stream = std::net::TcpStream::from(fd);
-			TcpStream::from_std(stream).unwrap()
-		};
-		let fs = fs.clone();
-		tokio::spawn(async move {
-			let mut client = Client {
-				client: stream, fs: &fs,
-			};
-			const KEEPALIVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
-			loop {
-				let Ok(result) = tokio::time::timeout(KEEPALIVE_TIMEOUT, client.run()).await 
-				else {
-					return;
+		tokio::select! {
+			stream = parent.recv_fd() => {
+				let stream = stream.unwrap();
+				let stream = std::net::TcpStream::from(stream);
+				let stream = TcpStream::from_std(stream).unwrap();
+				let fs = fs.clone();
+				tokio::spawn(async move {
+				let mut client = Client {
+					client: stream, fs: &fs,
 				};
-				if let Err(err) = result {
-					match err {
-						http::Error::Missing => {}, /* EOF (probably) */
-						other => eprintln!("{:?}", other),
+				const KEEPALIVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+				loop {
+					let Ok(result) = tokio::time::timeout(KEEPALIVE_TIMEOUT, client.run()).await 
+					else {
+						return;
+					};
+					if let Err(err) = result {
+						match err {
+							http::Error::Missing => {}, /* EOF (probably) */
+							other => eprintln!("{:?}", other),
+						}
+						return;
 					}
-					return;
-				}
-			};
-		});
+				};
+				});
+			}
+			_ = sigint.recv() => { break },
+		}
 	};
+	std::process::exit(0);
 }
 
 struct Client<'a> {
