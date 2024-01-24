@@ -89,10 +89,7 @@ impl Server {
 	{
 		let mut response = self.open(path).await;
 		let resp = match response {
-			Err(FileError::NotFound) => OpenResponse::NotFound,
-			Err(FileError::NotAllowed) => OpenResponse::NotAllowed,
-			Err(FileError::Io) => OpenResponse::OtherError,
-			Err(FileError::SpecialFile) => OpenResponse::OtherError,
+			Err(err) => OpenResponse::FileError(err),
 			Ok(File::File(_)) => OpenResponse::File,
 			Ok(File::Dir(ref mut dir)) => {
 				let mut vec = Vec::new();
@@ -150,15 +147,13 @@ pub struct FileInfo {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum OpenResponse {
-	NotFound,
-	NotAllowed,
-	OtherError,
+	FileError(FileError),
 	File,
 	Dir(Vec<FileInfo>),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-enum FileError {
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+pub enum FileError {
 	NotFound,
 	NotAllowed,
 	SpecialFile,

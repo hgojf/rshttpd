@@ -121,9 +121,8 @@ impl Client<'_> {
 				let mut response = http::Response::new(&mut dir);
 				response.write(&mut reader).await?;
 			}
-			fs::OpenResponse::NotFound | fs::OpenResponse::NotAllowed |
-			fs::OpenResponse::OtherError => {
-				let mut response = http::ResponseCode::from(message);
+			fs::OpenResponse::FileError(error) => {
+				let mut response = http::ResponseCode::from(error);
 				let mut response = http::Response::new(&mut response);
 				response.write(&mut reader).await?;
 			}
@@ -132,12 +131,12 @@ impl Client<'_> {
 	}
 }
 
-impl From<fs::OpenResponse> for http::ResponseCode {
-	fn from(resp: fs::OpenResponse) -> http::ResponseCode {
+impl From<fs::FileError> for http::ResponseCode {
+	fn from(resp: fs::FileError) -> http::ResponseCode {
 		match resp {
-			fs::OpenResponse::NotFound => http::ResponseCode::NotFound,
-			fs::OpenResponse::NotAllowed => http::ResponseCode::PermissionDenied,
-			fs::OpenResponse::OtherError => http::ResponseCode::InternalError,
+			fs::FileError::NotFound => http::ResponseCode::NotFound,
+			fs::FileError::NotAllowed => http::ResponseCode::PermissionDenied,
+			fs::FileError::SpecialFile => http::ResponseCode::InternalError,
 			_ => panic!(),
 		}
 	}
