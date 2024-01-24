@@ -20,17 +20,23 @@ async fn main() {
 	let mut args = std::env::args();
 	args.next().expect("what?");
 	if let Some(arg) = args.next() {
-		if arg == "-f" {
-			proc::privdrop("/var/www/htdocs/", "www").expect("privdrop");
-			fs::main().await;
-		}
-		if arg == "-c" {
-			proc::privdrop("/var/empty", "www").expect("privdrop");
-			client::main().await;
-		}
-		if arg == "-e" {
-			proc::privdrop("/var/empty", "www").expect("privdrop");
-			crypto::main().await;
+		if arg == "-p" {
+			let arg = args.next().unwrap();
+			match arg.as_str() {
+				"client" => {
+					proc::privdrop("/var/empty", "www").expect("privdrop");
+					client::main().await;
+				}
+				"crypto" => {
+					proc::privdrop("/var/empty", "www").expect("privdrop");
+					crypto::main().await;
+				}
+				"filesystem" => {
+					proc::privdrop("/var/www/htdocs/", "www").expect("privdrop");
+					fs::main().await;
+				}
+				_ => {},
+			}
 		}
 	}
 
@@ -114,15 +120,15 @@ struct Manager {
 impl Manager {
 	async fn new(prog: &str, config: ManagerConfig<'_>) -> std::io::Result<Self> {
 
-		let fs = proc::ProcessBuilder::new(prog, "httpd: filesystem", "-f")
+		let fs = proc::ProcessBuilder::new(prog, "filesystem")
 			.build()?;
-		let client = proc::ProcessBuilder::new(prog, "httpd: filesystem", "-c")
+		let client = proc::ProcessBuilder::new(prog, "client")
 			.build()?;
 		let acceptor = match config.tls {
 			Some(tls) => {
 				let certfile = tokio::fs::File::open(tls.cert).await?.into_std().await;
 				let keyfile = tokio::fs::File::open(tls.key).await?.into_std().await;
-				let crypto = proc::ProcessBuilder::new(prog, "httpd: filesystem", "-e")
+				let crypto = proc::ProcessBuilder::new(prog, "crypto")
 					.build()?;
 
 				crypto.peer().send_fds(&[certfile.into(), keyfile.into()]).await?;
