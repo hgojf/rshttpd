@@ -18,7 +18,6 @@ impl Content for tokio::fs::File {
 	}
 }
 
-#[derive(Debug)]
 struct Directory(String);
 
 impl Content for Directory {

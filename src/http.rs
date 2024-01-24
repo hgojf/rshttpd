@@ -93,7 +93,7 @@ impl Request {
 	}
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum ResponseCode {
 	Ok,
 	NotFound,
@@ -146,7 +146,7 @@ impl <'a, T: Content> Response<'a, T> {
 	}
 }
 
-pub trait Content: core::fmt::Debug {
+pub trait Content {
 	fn code(&self) -> ResponseCode 
 	{
 		ResponseCode::Ok
