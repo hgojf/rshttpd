@@ -58,7 +58,9 @@ async fn main() {
 		loop {
 			tokio::select! {
 				err = server.serve() => {
-					eprintln!("{:?}", err);
+					if let Err(err) = err {
+						eprintln!("{:?}", err);
+					}
 				}
 				_ = mytok.cancelled() => break,
 			}

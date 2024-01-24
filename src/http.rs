@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, AsyncWrite};
 use std::fmt::Write;
 
 #[derive(Debug, PartialEq)]
@@ -93,7 +93,7 @@ impl Request {
 	}
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum ResponseCode {
 	Ok,
 	NotFound,
@@ -101,23 +101,22 @@ pub enum ResponseCode {
 	InternalError,
 }
 
-pub struct Response {
+pub struct Response<'a, T: Content> {
+	content: &'a mut T,
 	version: Version,
-	response: ResponseCode,
 	headers: HashMap<String, String>,
 }
 
-impl Response {
-	pub fn new(response: ResponseCode, len: usize) -> Self {
-		let mut headers = HashMap::new();
-		headers.insert("Content-length".to_string(), len.to_string());
+impl <'a, T: Content> Response<'a, T> {
+	pub fn new(content: &'a mut T) -> Response<'a, T> {
+		let headers = HashMap::new();
 		Self {
 			version: Version::OneOne,
-			response,
+			content,
 			headers,
 		}
 	}
-	pub async fn write<T: AsyncWriteExt + Unpin> (&self, writer: &mut T) 
+	pub async fn write<E: AsyncWriteExt + Unpin> (&mut self, writer: &mut E) 
 	-> std::io::Result<()> {
 		let version = match self.version {
 			Version::One => "HTTP/1.0",
@@ -126,20 +125,58 @@ impl Response {
 		};
 		writer.write(version.as_bytes()).await?;
 		writer.write_u8(b' ').await?;
-		let response = match self.response {
-			ResponseCode::Ok => "200 OK",
-			ResponseCode::NotFound => "404 Not Found",
-			ResponseCode::PermissionDenied => "403 Forbidden",
-			ResponseCode::InternalError => "500 Internal Server Error",
-		};
+		let response = self.content.code();
+		let response = response.val();
 		writer.write(response.as_bytes()).await?;
 		writer.write(b"\r\n").await?;
+
+		let mut str = String::new();
+		write!(str, "Content-Length: {}\r\n", self.content.len().await.expect("idk"))
+			.unwrap();
+		writer.write(str.as_bytes()).await?;
+
 		for (key, value) in &self.headers {
 			let mut str = String::new();
 			write!(str, "{key}: {value}\r\n").unwrap();
 			writer.write(str.as_bytes()).await?;
 		}
 		writer.write(b"\r\n").await?;
+		self.content.write(writer).await?;
+		Ok(())
+	}
+}
+
+pub trait Content: core::fmt::Debug {
+	fn code(&self) -> ResponseCode 
+	{
+		ResponseCode::Ok
+	}
+	async fn len(&self) -> std::io::Result<usize>;
+	async fn write<T: AsyncWrite + Unpin> (&mut self, writer: &mut T) -> std::io::Result<()>;
+}
+
+impl ResponseCode {
+	const fn val(&self) -> &'static str {
+		match self {
+			ResponseCode::Ok => "200 OK",
+			ResponseCode::NotFound => "404 Not found",
+			ResponseCode::PermissionDenied => "403 Forbidden",
+			ResponseCode::InternalError => "500 Internal Server Error",
+		}
+	}
+}
+
+impl Content for ResponseCode {
+	fn code(&self) -> ResponseCode {
+		*self
+	}
+
+	async fn len(&self) -> std::io::Result<usize> {
+		Ok(0)
+	}
+
+	async fn write<T: AsyncWrite + Unpin> (&mut self, _writer: &mut T) 
+	-> std::io::Result<()> {
 		Ok(())
 	}
 }

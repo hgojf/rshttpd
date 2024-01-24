@@ -1,51 +1,32 @@
 use crate::{fs, proc, http};
+use http::Content;
 use tokio_seqpacket::UnixSeqpacket;
 use tokio_seqpacket::ancillary::OwnedAncillaryMessage;
 use tokio::net::TcpStream;
-use tokio::io::{AsyncWriteExt, BufReader};
+use tokio::io::{AsyncWrite, AsyncWriteExt, BufReader};
 use pledge::pledge;
 use std::sync::Arc;
 
-enum File {
-	File(tokio::fs::File),
-	Dir(String),
-	Error(http::ResponseCode),
+impl Content for tokio::fs::File {
+	async fn len(&self) -> std::io::Result<usize> {
+		let len = self.metadata().await?.len().try_into().unwrap();
+		Ok(len)
+	}
+	async fn write<T: AsyncWrite + Unpin> (&mut self, writer: &mut T) -> std::io::Result<()> {
+		tokio::io::copy(self, writer).await?;
+		Ok(())
+	}
 }
 
-impl File {
+#[derive(Debug)]
+struct Directory(String);
+
+impl Content for Directory {
 	async fn len(&self) -> std::io::Result<usize> {
-		match self {
-			Self::File(file) => {
-				Ok(file.metadata().await?.len().try_into().unwrap())
-			}
-			Self::Dir(dir) => {
-				Ok(dir.len())
-			}
-			Self::Error(_) => Ok(3),
-		}
+		Ok(self.0.len())
 	}
-	async fn write<T: AsyncWriteExt + Unpin > (&mut self, writer: &mut T) 
-	-> std::io::Result<()> {
-		match self {
-			Self::File(ref mut file) => {
-				tokio::io::copy(file, writer).await?;
-			}
-			Self::Dir(dir) => {
-				writer.write(dir.as_bytes()).await?;
-			}
-			Self::Error(http::ResponseCode::NotFound) => {
-				writer.write(b"404").await?;
-			}
-			Self::Error(http::ResponseCode::PermissionDenied) => {
-				writer.write(b"403").await?;
-			}
-			Self::Error(http::ResponseCode::InternalError) => {
-				writer.write(b"500").await?;
-			}
-			Self::Error(_) => {
-				writer.write(b"123").await?;
-			}
-		}
+	async fn write<T: AsyncWrite + Unpin> (&mut self, writer: &mut T) -> std::io::Result<()> {
+		writer.write(self.0.as_bytes()).await?;
 		Ok(())
 	}
 }
@@ -115,10 +96,10 @@ impl Client<'_> {
 		let buf = &buf[..len];
 		let message: fs::OpenResponse = serde_cbor::from_slice(&buf).expect("serde");
 
-		let (response, mut file) = match message {
+		match message {
 			fs::OpenResponse::File => {
 				let mut messages = ancillary.into_messages();
-				let file = match messages.next() {
+				let mut file = match messages.next() {
 					Some(OwnedAncillaryMessage::FileDescriptors(mut fds)) => {
 						let fd = fds.next().expect("no file descriptors");
 						let file = std::fs::File::from(fd);
@@ -126,34 +107,39 @@ impl Client<'_> {
 					}
 					_ => panic!("bad message"),
 				};
-				(http::ResponseCode::Ok, File::File(file))
+				eprintln!("hi");
+				let mut response = http::Response::new(&mut file);
+				response.write(&mut reader).await?;
 			}
 			fs::OpenResponse::Dir(dir) => {
+				eprintln!("dir");
 				let mut string = String::new();
 				for file in dir {
 					string.push_str(&file.name);
 					string.push('\n');
 				}
-				(http::ResponseCode::Ok, File::Dir(string))
+				let mut dir = Directory(string);
+				let mut response = http::Response::new(&mut dir);
+				response.write(&mut reader).await?;
 			}
-			fs::OpenResponse::NotFound => {
-				let code = http::ResponseCode::NotFound;
-				(code, File::Error(code))
-			}
-			fs::OpenResponse::NotAllowed => {
-				let code = http::ResponseCode::PermissionDenied;
-				(code, File::Error(code))
-			}
+			fs::OpenResponse::NotFound | fs::OpenResponse::NotAllowed |
 			fs::OpenResponse::OtherError => {
-				let code = http::ResponseCode::InternalError;
-				(code, File::Error(code))
+				let mut response = http::ResponseCode::from(message);
+				let mut response = http::Response::new(&mut response);
+				response.write(&mut reader).await?;
 			}
 		};
-
-		let len = file.len().await.expect("fstat");
-		let response = http::Response::new(response, len);
-		response.write(&mut reader).await.expect("send");
-		file.write(&mut reader).await.expect("send");
 		Ok(())
+	}
+}
+
+impl From<fs::OpenResponse> for http::ResponseCode {
+	fn from(resp: fs::OpenResponse) -> http::ResponseCode {
+		match resp {
+			fs::OpenResponse::NotFound => http::ResponseCode::NotFound,
+			fs::OpenResponse::NotAllowed => http::ResponseCode::PermissionDenied,
+			fs::OpenResponse::OtherError => http::ResponseCode::InternalError,
+			_ => panic!(),
+		}
 	}
 }
