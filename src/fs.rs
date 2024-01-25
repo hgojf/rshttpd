@@ -90,16 +90,17 @@ impl Server {
 		let mut response = self.open(path).await;
 		let resp = match response {
 			Err(err) => OpenResponse::FileError(err),
-			Ok(File::File(_)) => {
+			Ok(File::File(_, index)) => {
 				let name = {
 					/* HACK to figure out if this was resolved from a directory */
-					if path.ends_with("/") {
+					if index {
 						format!("{path}/index.html")
 					}
 					else {
 						path.to_string()
 					}
 				};
+				eprintln!("{name}");
 				let info = FileInfo { name };
 				OpenResponse::File(info)
 			}
@@ -120,7 +121,7 @@ impl Server {
 		let slice = std::io::IoSlice::new(&buf);
 		let mut buf: [u8; 128] = [0; 128];
 		let mut writer = AncillaryMessageWriter::new(&mut buf);
-		if let Ok(File::File(fd)) = &response {
+		if let Ok(File::File(fd, _)) = &response {
 			writer.add_fds(&[fd.as_fd()]).expect("add_fds");
 		}
 		peer.socket().send_vectored_with_ancillary(&[slice], &mut writer)
@@ -184,7 +185,7 @@ impl From<std::io::Error> for FileError {
 
 #[derive(Debug)]
 enum File {
-	File(OwnedFd),
+	File(OwnedFd, bool),
 	Dir(tokio::fs::ReadDir),
 }
 
@@ -229,13 +230,13 @@ impl Server {
 			let index = format!("{path}/index.html");
 			if let Ok(file) = fs::File::open(index).await {
 				let fd = OwnedFd::from(file.into_std().await);
-				return Ok(File::File(fd))
+				return Ok(File::File(fd, true))
 			}
 			let dir = tokio::fs::read_dir(path).await?;
 			return Ok(File::Dir(dir));
 		}
 		else if metadata.is_file() {
-			return Ok(File::File(fd));
+			return Ok(File::File(fd, false));
 		}
 		else {
 			/* This is a character device or something?

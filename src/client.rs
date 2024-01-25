@@ -134,7 +134,7 @@ impl Client<'_> {
 				string.push_str("<!DOCTYPE html>\n<html>\n<body>\n<pre>\n");
 				string.push_str("<a href=../>../</a>\n");
 				for file in dir {
-					write!(string, "<a href={0}>{0}</a>\n", file.name).unwrap();
+					write!(string, "<a href={0}/>{0}</a>\n", file.name).unwrap();
 				}
 				string.push_str("</pre>\n</body>\n</html>\n");
 				let mut dir = Directory(string);
