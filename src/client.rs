@@ -8,12 +8,13 @@ use tokio::io::{AsyncWrite, AsyncWriteExt, BufReader};
 use pledge::pledge;
 use std::sync::Arc;
 
+#[async_trait::async_trait]
 impl Content for tokio::fs::File {
 	async fn len(&self) -> std::io::Result<usize> {
 		let len = self.metadata().await?.len().try_into().unwrap();
 		Ok(len)
 	}
-	async fn write<T: AsyncWrite + Unpin> (&mut self, writer: &mut T) -> std::io::Result<()> {
+	async fn write<T: AsyncWrite + Unpin + Send> (&mut self, writer: &mut T) -> std::io::Result<()> {
 		tokio::io::copy(self, writer).await?;
 		Ok(())
 	}
@@ -21,11 +22,12 @@ impl Content for tokio::fs::File {
 
 struct Directory(String);
 
+#[async_trait::async_trait]
 impl Content for Directory {
 	async fn len(&self) -> std::io::Result<usize> {
 		Ok(self.0.len())
 	}
-	async fn write<T: AsyncWrite + Unpin> (&mut self, writer: &mut T) -> std::io::Result<()> {
+	async fn write<T: AsyncWrite + Unpin + Send> (&mut self, writer: &mut T) -> std::io::Result<()> {
 		writer.write(self.0.as_bytes()).await?;
 		Ok(())
 	}

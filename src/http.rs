@@ -127,7 +127,7 @@ impl <'a, T: Content> Response<'a, T> {
 			headers,
 		}
 	}
-	pub async fn write<E: AsyncWriteExt + Unpin> (&mut self, writer: &mut E) 
+	pub async fn write<E: AsyncWriteExt + Unpin + Send> (&mut self, writer: &mut E) 
 	-> std::io::Result<()> {
 		let version = match self.version {
 			Version::One => "HTTP/1.0",
@@ -157,13 +157,14 @@ impl <'a, T: Content> Response<'a, T> {
 	}
 }
 
+#[async_trait::async_trait]
 pub trait Content {
 	fn code(&self) -> ResponseCode 
 	{
 		ResponseCode::Ok
 	}
 	async fn len(&self) -> std::io::Result<usize>;
-	async fn write<T: AsyncWrite + Unpin> (&mut self, writer: &mut T) -> std::io::Result<()>;
+	async fn write<T: AsyncWrite + Unpin + Send> (&mut self, writer: &mut T) -> std::io::Result<()>;
 }
 
 impl ResponseCode {
@@ -177,6 +178,7 @@ impl ResponseCode {
 	}
 }
 
+#[async_trait::async_trait]
 impl Content for ResponseCode {
 	fn code(&self) -> ResponseCode {
 		*self
@@ -186,7 +188,7 @@ impl Content for ResponseCode {
 		Ok(0)
 	}
 
-	async fn write<T: AsyncWrite + Unpin> (&mut self, _writer: &mut T) 
+	async fn write<T: AsyncWrite + Unpin + Send> (&mut self, _writer: &mut T) 
 	-> std::io::Result<()> {
 		Ok(())
 	}
