@@ -91,7 +91,16 @@ impl Server {
 		let resp = match response {
 			Err(err) => OpenResponse::FileError(err),
 			Ok(File::File(_)) => {
-				let info = FileInfo { name: path.to_string() };
+				let name = {
+					/* HACK to figure out if this was resolved from a directory */
+					if path.ends_with("/") {
+						format!("{path}/index.html")
+					}
+					else {
+						path.to_string()
+					}
+				};
+				let info = FileInfo { name };
 				OpenResponse::File(info)
 			}
 			Ok(File::Dir(ref mut dir)) => {
@@ -217,6 +226,11 @@ impl Server {
 			/* Under pledge you can't send directory file descriptors,
 			 * so this has to do
 			 */
+			let index = format!("{path}/index.html");
+			if let Ok(file) = fs::File::open(index).await {
+				let fd = OwnedFd::from(file.into_std().await);
+				return Ok(File::File(fd))
+			}
 			let dir = tokio::fs::read_dir(path).await?;
 			return Ok(File::Dir(dir));
 		}

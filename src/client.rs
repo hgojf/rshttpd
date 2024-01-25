@@ -7,6 +7,7 @@ use tokio::signal::unix::{signal, SignalKind};
 use tokio::io::{AsyncWrite, AsyncWriteExt, BufReader};
 use pledge::pledge;
 use std::sync::Arc;
+use std::fmt::Write;
 
 #[async_trait::async_trait]
 impl Content for tokio::fs::File {
@@ -130,11 +131,14 @@ impl Client<'_> {
 			fs::OpenResponse::Dir(dir) => {
 				eprintln!("dir");
 				let mut string = String::new();
+				string.push_str("<!DOCTYPE html>\n<html>\n<body>\n<pre>\n");
+				string.push_str("<a href=../>../</a>\n");
 				for file in dir {
-					string.push_str(&file.name);
-					string.push('\n');
+					write!(string, "<a href={0}>{0}</a>\n", file.name).unwrap();
 				}
+				string.push_str("</pre>\n</body>\n</html>\n");
 				let mut dir = Directory(string);
+				headers.insert("Content-Type", "text/html");
 				let mut response = http::Response::new(&mut dir, &mut headers);
 				response.write(&mut reader).await?;
 			}
