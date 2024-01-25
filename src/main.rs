@@ -62,7 +62,7 @@ async fn main() {
 	let server = Manager::new(PROGRAM_PATH, config, global_config).await.unwrap();
 
 	proc::privdrop("/var/empty/", "www").expect("privdrop");
-	pledge("stdio sendfd proc inet dns", None).expect("pledge");
+	pledge("stdio sendfd proc inet", None).expect("pledge");
 
 	let token = CancellationToken::new();
 	let mytok = token.clone();
