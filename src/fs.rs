@@ -90,7 +90,10 @@ impl Server {
 		let mut response = self.open(path).await;
 		let resp = match response {
 			Err(err) => OpenResponse::FileError(err),
-			Ok(File::File(_)) => OpenResponse::File,
+			Ok(File::File(_)) => {
+				let info = FileInfo { name: path.to_string() };
+				OpenResponse::File(info)
+			}
 			Ok(File::Dir(ref mut dir)) => {
 				let mut vec = Vec::new();
 				while let Some(entry) = dir.next_entry().await? {
@@ -148,7 +151,7 @@ pub struct FileInfo {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum OpenResponse {
 	FileError(FileError),
-	File,
+	File(FileInfo),
 	Dir(Vec<FileInfo>),
 }
 

@@ -1,4 +1,4 @@
-use crate::{fs, proc, http};
+use crate::{fs, proc, http, mime};
 use http::Content;
 use tokio_seqpacket::UnixSeqpacket;
 use tokio_seqpacket::ancillary::OwnedAncillaryMessage;
@@ -37,10 +37,14 @@ pub async fn main() -> ! {
 		proc::Peer::get_parent()
 	};
 	
-	let fs = {
-		let fd = parent.recv_fd().await.expect("no file descriptor");
+	let mut buf: [u8; 4096] = [0; 4096];
+	let (fs, mimedb) = {
+		let (len, fd) = parent.recv_with_fd(&mut buf).await.expect("no file descriptor");
 		let sock = UnixSeqpacket::try_from(fd).unwrap();
-		Arc::new(proc::Peer::from_stream(sock))
+		let peer = Arc::new(proc::Peer::from_stream(sock));
+		let mimedb: mime::MimeDb = serde_cbor::from_slice(&buf[..len]).unwrap();
+		let mimedb = Arc::new(mimedb);
+		(peer, mimedb)
 	};
 
 	let mut sigint = signal(SignalKind::interrupt()).expect("signal");
@@ -52,9 +56,10 @@ pub async fn main() -> ! {
 				let stream = std::net::TcpStream::from(stream);
 				let stream = TcpStream::from_std(stream).unwrap();
 				let fs = fs.clone();
+				let mimedb = mimedb.clone();
 				tokio::spawn(async move {
 				let mut client = Client {
-					client: stream, fs: &fs,
+					client: stream, fs: &fs, mimedb: &mimedb,
 				};
 				const KEEPALIVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 				loop {
@@ -79,6 +84,7 @@ pub async fn main() -> ! {
 }
 
 struct Client<'a> {
+	mimedb: &'a mime::MimeDb,
 	fs: &'a proc::Peer,
 	client: TcpStream,
 }
@@ -102,8 +108,9 @@ impl Client<'_> {
 		let buf = &buf[..len];
 		let message: fs::OpenResponse = serde_cbor::from_slice(&buf).expect("serde");
 
+		let mut headers = http::Headers::new();
 		match message {
-			fs::OpenResponse::File => {
+			fs::OpenResponse::File(info) => {
 				let mut messages = ancillary.into_messages();
 				let mut file = match messages.next() {
 					Some(OwnedAncillaryMessage::FileDescriptors(mut fds)) => {
@@ -113,8 +120,9 @@ impl Client<'_> {
 					}
 					_ => panic!("bad message"),
 				};
-				eprintln!("hi");
-				let mut response = http::Response::new(&mut file);
+				let kind = self.mimedb.get(&info.name).unwrap_or("application/octet-stream");
+				headers.insert("Content-Type", kind);
+				let mut response = http::Response::new(&mut file, &mut headers);
 				response.write(&mut reader).await?;
 			}
 			fs::OpenResponse::Dir(dir) => {
@@ -125,12 +133,12 @@ impl Client<'_> {
 					string.push('\n');
 				}
 				let mut dir = Directory(string);
-				let mut response = http::Response::new(&mut dir);
+				let mut response = http::Response::new(&mut dir, &mut headers);
 				response.write(&mut reader).await?;
 			}
 			fs::OpenResponse::FileError(error) => {
 				let mut response = http::ResponseCode::from(error);
-				let mut response = http::Response::new(&mut response);
+				let mut response = http::Response::new(&mut response, &mut headers);
 				response.write(&mut reader).await?;
 			}
 		};

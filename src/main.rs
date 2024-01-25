@@ -1,6 +1,7 @@
 mod proc;
 mod http;
 mod tls;
+mod mime;
 
 mod fs;
 mod client;
@@ -40,20 +41,25 @@ async fn main() {
 		}
 	}
 
+	let global_config = GlobalConfig::new("/usr/share/misc/mime.types").await.unwrap();
+
 	let config = ManagerConfig {
+		/*
 		tls: Some(
 			TlsConfig {
 				cert: "./cert.pem",
 				key: "./key.pem",
 			}
 		),
+		*/
+		tls: None,
 		fs: fs::Server::new(vec![
 			fs::Location::new("/", false),
 			fs::Location::new("/private/", true),
 		]),
 		addr: "127.0.0.1:199".parse().unwrap(),
 	};
-	let server = Manager::new(PROGRAM_PATH, config).await.unwrap();
+	let server = Manager::new(PROGRAM_PATH, config, global_config).await.unwrap();
 
 	proc::privdrop("/var/empty/", "www").expect("privdrop");
 	pledge("stdio sendfd proc inet dns", None).expect("pledge");
@@ -90,6 +96,21 @@ async fn main() {
 	token.cancel();
 }
 
+struct GlobalConfig {
+	mime: mime::MimeDb,
+}
+
+impl GlobalConfig {
+	async fn new(path: &str) -> std::io::Result<Self> {
+		let mime_file = tokio::fs::File::open(path).await?;
+		let mut mime_file = tokio::io::BufReader::new(mime_file);
+		let mime = mime::MimeDb::new(&mut mime_file).await.unwrap();
+		Ok(Self {
+			mime
+		})
+	}
+}
+
 struct TlsConfig<'a> {
 	cert: &'a str,
 	key: &'a str,
@@ -118,7 +139,8 @@ struct Manager {
  * before doing serde things
  */
 impl Manager {
-	async fn new(prog: &str, config: ManagerConfig<'_>) -> std::io::Result<Self> {
+	async fn new(prog: &str, config: ManagerConfig<'_>, global_config: GlobalConfig) 
+	-> std::io::Result<Self> {
 
 		let fs = proc::ProcessBuilder::new(prog, "filesystem")
 			.build()?;
@@ -146,7 +168,8 @@ impl Manager {
 		let (a, b) = UnixSeqpacket::pair()?;
 
 		fs.peer().send_fd(a).await?;
-		client.peer().send_fd(b).await?;
+		let message = serde_cbor::to_vec(&global_config.mime).unwrap();
+		client.peer().send_with_fd(b, &message).await?;
 
 		let listener = TcpListener::bind(config.addr).await?;
 		Ok(Self {
