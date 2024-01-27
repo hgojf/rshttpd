@@ -16,12 +16,13 @@ pub async fn main() -> ! {
 	};
 
 	let mut buf: [u8; 4096] = [0; 4096];
-	let len = parent.socket().recv(&mut buf).await.expect("read");
-	let message: RecvMessageMain = serde_cbor::from_slice(&buf[..len]).expect("idk");
-
-	let server = match message {
-		RecvMessageMain::Config(server) => Arc::new(server),
+	let (len, fd) = parent.recv_with_fd(&mut buf).await.expect("read");
+	let mut peer = {
+		let seq = UnixSeqpacket::try_from(fd).unwrap();
+		proc::Peer::from_stream(seq)
 	};
+	let server: Server = serde_cbor::from_slice(&buf[..len]).expect("idk");
+	let server = Arc::new(server);
 
 	for location in &server.locations {
 		if location.blocked {
@@ -32,12 +33,6 @@ pub async fn main() -> ! {
 		}
 	}
 	pledge("stdio sendfd recvfd rpath", None).expect("pledge");
-
-	let mut peer = {
-		let fd = parent.recv_fd().await.expect("no file descriptor");
-		let seq = UnixSeqpacket::try_from(fd).unwrap();
-		proc::Peer::from_stream(seq)
-	};
 
 	pledge("stdio sendfd recvfd rpath", None).expect("pledge");
 
@@ -245,11 +240,6 @@ impl Server {
 			return Err(FileError::SpecialFile);
 		}
 	}
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub enum RecvMessageMain {
-	Config(Server),
 }
 
 #[derive(Debug, Serialize, Deserialize)]

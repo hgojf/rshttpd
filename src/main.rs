@@ -161,13 +161,10 @@ impl Manager {
 			}
 		};
 
-		let message = fs::RecvMessageMain::Config(config.fs);
-		let buf = serde_cbor::to_vec(&message).expect("serde");
-		fs.peer().send(&buf).await?;
-
 		let (a, b) = UnixSeqpacket::pair()?;
 
-		fs.peer().send_fd(a).await?;
+		let buf = serde_cbor::to_vec(&config.fs).expect("serde");
+		fs.peer().send_with_fd(a, &buf).await?;
 		let message = serde_cbor::to_vec(&global_config.mime).unwrap();
 		client.peer().send_with_fd(b, &message).await?;
 
