@@ -129,7 +129,6 @@ impl Client<'_> {
 				response.write(&mut reader).await?;
 			}
 			fs::OpenResponse::Dir(dir) => {
-				eprintln!("dir");
 				let mut string = String::new();
 				string.push_str("<!DOCTYPE html>\n<html>\n<body>\n<pre>\n");
 				string.push_str("<a href=../>../</a>\n");

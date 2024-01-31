@@ -95,7 +95,6 @@ impl Server {
 						path.to_string()
 					}
 				};
-				eprintln!("{name}");
 				let info = FileInfo { name };
 				OpenResponse::File(info)
 			}
