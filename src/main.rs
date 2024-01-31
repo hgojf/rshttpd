@@ -97,14 +97,12 @@ async fn main() {
 }
 
 struct GlobalConfig {
-	mime: mime::MimeDb,
+	mime: tokio::fs::File,
 }
 
 impl GlobalConfig {
 	async fn new(path: &str) -> std::io::Result<Self> {
-		let mime_file = tokio::fs::File::open(path).await?;
-		let mut mime_file = tokio::io::BufReader::new(mime_file);
-		let mime = mime::MimeDb::new(&mut mime_file).await.unwrap();
+		let mime = tokio::fs::File::open(path).await?;
 		Ok(Self {
 			mime
 		})
@@ -165,8 +163,9 @@ impl Manager {
 
 		let buf = serde_cbor::to_vec(&config.fs).expect("serde");
 		fs.peer().send_with_fd(a, &buf).await?;
-		let message = serde_cbor::to_vec(&global_config.mime).unwrap();
-		client.peer().send_with_fd(b, &message).await?;
+		let mime = global_config.mime.into_std().await;
+		let mime = OwnedFd::from(mime);
+		client.peer().send_fds(&[b.into(), mime]).await?;
 
 		let listener = TcpListener::bind(config.addr).await?;
 		Ok(Self {

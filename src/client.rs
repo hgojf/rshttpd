@@ -3,7 +3,7 @@ use http::Content;
 use tokio_seqpacket::UnixSeqpacket;
 use tokio::net::TcpStream;
 use tokio::signal::unix::{signal, SignalKind};
-use tokio::io::{AsyncWrite, AsyncWriteExt, BufStream};
+use tokio::io::{AsyncWrite, AsyncWriteExt, BufStream, BufReader};
 use pledge::pledge;
 use std::sync::Arc;
 use std::fmt::Write;
@@ -41,10 +41,13 @@ pub async fn main() -> ! {
 	
 	let mut buf: [u8; 4096] = [0; 4096];
 	let (fs, mimedb) = {
-		let (len, fd) = parent.recv_with_fd(&mut buf).await.expect("no file descriptor");
-		let sock = UnixSeqpacket::try_from(fd).unwrap();
+		let (_, (ffd, mfd)) = parent.recv_with_fds(&mut buf).await.expect("no file descriptor");
+		let sock = UnixSeqpacket::try_from(ffd).unwrap();
 		let peer = Arc::new(proc::Peer::from_stream(sock));
-		let mimedb: mime::MimeDb = serde_cbor::from_slice(&buf[..len]).unwrap();
+		let mimedb = std::fs::File::from(mfd);
+		let mimedb = tokio::fs::File::from_std(mimedb);
+		let mut mimedb = BufReader::new(mimedb);
+		let mimedb = crate::mime::MimeDb::new(&mut mimedb).await.unwrap();
 		let mimedb = Arc::new(mimedb);
 		(peer, mimedb)
 	};
