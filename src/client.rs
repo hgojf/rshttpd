@@ -39,9 +39,8 @@ pub async fn main() -> ! {
 		proc::Peer::get_parent()
 	};
 	
-	let mut buf: [u8; 4096] = [0; 4096];
 	let (fs, mimedb) = {
-		let (_, (ffd, mfd)) = parent.recv_with_fds(&mut buf).await.expect("no file descriptor");
+		let (_, (ffd, mfd)) = parent.recv_with_fds(&mut []).await.expect("no file descriptor");
 		let sock = UnixSeqpacket::try_from(ffd).unwrap();
 		let peer = Arc::new(proc::Peer::from_stream(sock));
 		let mimedb = std::fs::File::from(mfd);
