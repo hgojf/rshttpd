@@ -1,10 +1,9 @@
 use crate::{fs, proc, http, mime};
 use http::Content;
 use tokio_seqpacket::UnixSeqpacket;
-use tokio_seqpacket::ancillary::OwnedAncillaryMessage;
 use tokio::net::TcpStream;
 use tokio::signal::unix::{signal, SignalKind};
-use tokio::io::{AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncWrite, AsyncWriteExt, BufStream};
 use pledge::pledge;
 use std::sync::Arc;
 use std::fmt::Write;
@@ -62,7 +61,7 @@ pub async fn main() -> ! {
 				let mimedb = mimedb.clone();
 				tokio::spawn(async move {
 				let mut client = Client {
-					client: stream, fs: &fs, mimedb: &mimedb,
+					client: BufStream::new(stream), fs: &fs, mimedb: &mimedb,
 				};
 				const KEEPALIVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 				loop {
@@ -89,44 +88,46 @@ pub async fn main() -> ! {
 struct Client<'a> {
 	mimedb: &'a mime::MimeDb,
 	fs: &'a proc::Peer,
-	client: TcpStream,
+	client: BufStream<TcpStream>,
 }
 
 impl Client<'_> {
-	async fn run(&mut self) -> Result<(), http::Error> {
-		let mut reader = BufReader::new(&mut self.client);
-		let request = http::Request::read(&mut reader).await?;
-
+	async fn resolve_path_under(&self, path: &str) -> std::io::Result<fs::OpenResponse> {
 		let (mine, theirs) = UnixSeqpacket::pair()?;
-		let message = fs::RecvMessageClient::Open(request.path());
+		let message = fs::RecvMessageClient::Open(path);
 		let vec = serde_cbor::to_vec(&message).expect("serde");
 		self.fs.send_with_fd(theirs, &vec).await?;
+		let message = fs::OpenResponse::recv(&mine).await?;
+		Ok(message)
+	}
+	async fn resolve_path(&self, path: &str) -> std::io::Result<fs::OpenResponse> {
+		if path.ends_with("/") {
+			let index = format!("{}/index.html", path);
+			let response = self.resolve_path_under(&index).await?;
+			if let fs::OpenResponse::File(info, file) = response {
+				return Ok(fs::OpenResponse::File(info, file));
+			}
+			else {
+				return self.resolve_path_under(path).await;
+			}
+		}
+		else {
+			return self.resolve_path_under(path).await;
+		}
+	}
 
-		let mut anbuf: [u8; 128] = [0; 128];
-		let mut buf: [u8; 1024] = [0; 1024];
-		let slice = std::io::IoSliceMut::new(&mut buf);
-		let (len, ancillary) = mine
-			.recv_vectored_with_ancillary(&mut [slice], &mut anbuf)
-			.await.expect("recv");
-		let buf = &buf[..len];
-		let message: fs::OpenResponse = serde_cbor::from_slice(&buf).expect("serde");
+	async fn run(&mut self) -> Result<(), http::Error> {
+		let request = http::Request::read(&mut self.client).await?;
+
+		let response = self.resolve_path(request.path()).await.unwrap();
 
 		let mut headers = http::Headers::new();
-		match message {
-			fs::OpenResponse::File(info) => {
-				let mut messages = ancillary.into_messages();
-				let mut file = match messages.next() {
-					Some(OwnedAncillaryMessage::FileDescriptors(mut fds)) => {
-						let fd = fds.next().expect("no file descriptors");
-						let file = std::fs::File::from(fd);
-						tokio::fs::File::from_std(file)
-					}
-					_ => panic!("bad message"),
-				};
+		match response {
+			fs::OpenResponse::File(info, mut file) => {
 				let kind = self.mimedb.get(&info.name).unwrap_or("application/octet-stream");
 				headers.insert("Content-Type", kind);
 				let mut response = http::Response::new(&mut file, &mut headers);
-				response.write(&mut reader).await?;
+				response.write(&mut self.client).await?;
 			}
 			fs::OpenResponse::Dir(dir) => {
 				let mut string = String::new();
@@ -139,14 +140,15 @@ impl Client<'_> {
 				let mut dir = Directory(string);
 				headers.insert("Content-Type", "text/html");
 				let mut response = http::Response::new(&mut dir, &mut headers);
-				response.write(&mut reader).await?;
+				response.write(&mut self.client).await?;
 			}
 			fs::OpenResponse::FileError(error) => {
 				let mut response = http::ResponseCode::from(error);
 				let mut response = http::Response::new(&mut response, &mut headers);
-				response.write(&mut reader).await?;
+				response.write(&mut self.client).await?;
 			}
-		};
+		}
+		self.client.flush().await?;
 		Ok(())
 	}
 }

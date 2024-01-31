@@ -3,8 +3,8 @@ use pledge::pledge;
 use unveil::unveil;
 use serde_derive::{Serialize, Deserialize};
 use tokio_seqpacket::UnixSeqpacket;
-use tokio_seqpacket::ancillary::{AncillaryMessageWriter};
-use std::os::fd::{AsFd, OwnedFd};
+use tokio_seqpacket::ancillary::{OwnedAncillaryMessage};
+use std::os::fd::{OwnedFd};
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::fs;
 use std::sync::Arc;
@@ -85,18 +85,11 @@ impl Server {
 		let mut response = self.open(path).await;
 		let resp = match response {
 			Err(err) => OpenResponse::FileError(err),
-			Ok(File::File(_, index)) => {
-				let name = {
-					/* HACK to figure out if this was resolved from a directory */
-					if index {
-						format!("{path}/index.html")
-					}
-					else {
-						path.to_string()
-					}
-				};
-				let info = FileInfo { name };
-				OpenResponse::File(info)
+			Ok(File::File(file)) => {
+				let file = std::fs::File::from(file);
+				let file = tokio::fs::File::from_std(file);
+				let info = FileInfo { name: path.to_string() };
+				OpenResponse::File(info, file)
 			}
 			Ok(File::Dir(ref mut dir)) => {
 				let mut vec = Vec::new();
@@ -110,16 +103,7 @@ impl Server {
 				OpenResponse::Dir(vec)
 			}
 		};
-		let buf = serde_cbor::to_vec(&resp).expect("serde_cbor");
-	
-		let slice = std::io::IoSlice::new(&buf);
-		let mut buf: [u8; 128] = [0; 128];
-		let mut writer = AncillaryMessageWriter::new(&mut buf);
-		if let Ok(File::File(fd, _)) = &response {
-			writer.add_fds(&[fd.as_fd()]).expect("add_fds");
-		}
-		peer.socket().send_vectored_with_ancillary(&[slice], &mut writer)
-			.await.expect("send");
+		resp.send(peer).await?;
 		Ok(())
 	}
 }
@@ -152,11 +136,71 @@ pub struct FileInfo {
 	pub name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub enum OpenResponse {
+	FileError(FileError),
+	File(FileInfo, tokio::fs::File),
+	Dir(Vec<FileInfo>),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+enum SerdeOpenResponse {
 	FileError(FileError),
 	File(FileInfo),
 	Dir(Vec<FileInfo>),
+}
+
+impl From<OpenResponse> for SerdeOpenResponse {
+	fn from(source: OpenResponse) -> Self {
+		match source {
+			OpenResponse::FileError(err) => Self::FileError(err),
+			OpenResponse::Dir(dir) => Self::Dir(dir),
+			OpenResponse::File(info, _) => Self::File(info),
+		}
+	}
+}
+
+impl OpenResponse {
+	async fn send(self, writer: &proc::Peer) -> std::io::Result<()> {
+		if let OpenResponse::File(info, file) = self {
+			let file = file.into_std().await;
+			let resp = SerdeOpenResponse::File(info);
+			let resp = serde_cbor::to_vec(&resp).unwrap();
+			writer.send_with_fd(file, &resp).await?;
+		}
+		else {
+			let resp: SerdeOpenResponse = self.into();
+			let resp = serde_cbor::to_vec(&resp).unwrap();
+			writer.socket().send(&resp).await?;
+		}
+		Ok(())
+	}
+	pub async fn recv(reader: &UnixSeqpacket) -> std::io::Result<Self> {
+		let mut buf: [u8; 1024] = [0; 1024];
+		let slice = std::io::IoSliceMut::new(&mut buf);
+		let mut anbuf = [0u8; 128];
+		let (len, ancillary) = reader
+			.recv_vectored_with_ancillary(&mut [slice], &mut anbuf)
+			.await?;
+		let message: SerdeOpenResponse = serde_cbor::from_slice(&buf[..len]).unwrap();
+		match message {
+			SerdeOpenResponse::Dir(dir) => Ok(Self::Dir(dir)),
+			SerdeOpenResponse::FileError(err) => Ok(Self::FileError(err)),
+			SerdeOpenResponse::File(file) => {
+				let mut messages = ancillary.into_messages();
+				let fd = match messages.next() {
+					Some(OwnedAncillaryMessage::FileDescriptors(mut fds)) => {
+						let fd = fds.next().unwrap();
+						let file = std::fs::File::from(fd);
+						tokio::fs::File::from_std(file)
+					}
+					_ => panic!(),
+				};
+				let file = FileInfo { name: file.name };
+				Ok(Self::File(file, fd))
+			}
+		}
+	}
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
@@ -179,7 +223,7 @@ impl From<std::io::Error> for FileError {
 
 #[derive(Debug)]
 enum File {
-	File(OwnedFd, bool),
+	File(OwnedFd),
 	Dir(tokio::fs::ReadDir),
 }
 
@@ -221,16 +265,11 @@ impl Server {
 			/* Under pledge you can't send directory file descriptors,
 			 * so this has to do
 			 */
-			let index = format!("{path}/index.html");
-			if let Ok(file) = fs::File::open(index).await {
-				let fd = OwnedFd::from(file.into_std().await);
-				return Ok(File::File(fd, true))
-			}
 			let dir = tokio::fs::read_dir(path).await?;
 			return Ok(File::Dir(dir));
 		}
 		else if metadata.is_file() {
-			return Ok(File::File(fd, false));
+			return Ok(File::File(fd));
 		}
 		else {
 			/* This is a character device or something?
