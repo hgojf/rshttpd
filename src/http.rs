@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, AsyncWrite};
 use std::fmt::Write;
 
-#[derive(Debug, PartialEq)]
-enum Method {
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum Method {
 	GET,
 	HEAD,
 }
@@ -91,6 +91,9 @@ impl Request {
 	pub fn path(&self) -> &String {
 		&self.path
 	}
+	pub fn method(&self) -> Method {
+		self.method
+	}
 }
 
 #[derive(Clone, Copy)]
@@ -104,14 +107,17 @@ pub enum ResponseCode {
 pub struct Response<'a, T: Content> {
 	content: &'a mut T,
 	version: Version,
+	head: bool,
 	headers: &'a [(&'a str, &'a str)],
 }
 
 impl <'a, T: Content> Response<'a, T> {
-	pub fn new(content: &'a mut T, headers: &'a [(&'a str, &'a str)]) -> Response<'a, T> {
+	pub fn new(content: &'a mut T, headers: &'a [(&'a str, &'a str)], head: bool) 
+	-> Response<'a, T> {
 		Self {
 			version: Version::OneOne,
 			content,
+			head,
 			headers,
 		}
 	}
@@ -140,7 +146,9 @@ impl <'a, T: Content> Response<'a, T> {
 			writer.write(str.as_bytes()).await?;
 		}
 		writer.write(b"\r\n").await?;
-		self.content.write(writer).await?;
+		if !self.head {
+			self.content.write(writer).await?;
+		}
 		Ok(())
 	}
 }
