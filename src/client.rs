@@ -123,12 +123,11 @@ impl Client<'_> {
 
 		let response = self.resolve_path(request.path()).await.unwrap();
 
-		let mut headers = http::Headers::new();
 		match response {
 			fs::OpenResponse::File(info, mut file) => {
 				let kind = self.mimedb.get(&info.name).unwrap_or("application/octet-stream");
-				headers.insert("Content-Type", kind);
-				let mut response = http::Response::new(&mut file, &mut headers);
+				let headers = [("Content-Type", kind)];
+				let mut response = http::Response::new(&mut file, &headers);
 				response.write(&mut self.client).await?;
 			}
 			fs::OpenResponse::Dir(dir) => {
@@ -140,13 +139,13 @@ impl Client<'_> {
 				}
 				string.push_str("</pre>\n</body>\n</html>\n");
 				let mut dir = Directory(string);
-				headers.insert("Content-Type", "text/html");
-				let mut response = http::Response::new(&mut dir, &mut headers);
+				let headers = [("Content-Type", "text/html")];
+				let mut response = http::Response::new(&mut dir, &headers);
 				response.write(&mut self.client).await?;
 			}
 			fs::OpenResponse::FileError(error) => {
 				let mut response = http::ResponseCode::from(error);
-				let mut response = http::Response::new(&mut response, &mut headers);
+				let mut response = http::Response::new(&mut response, &[]);
 				response.write(&mut self.client).await?;
 			}
 		}

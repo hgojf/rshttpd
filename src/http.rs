@@ -16,18 +16,6 @@ enum Version {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Headers<'a> (HashMap<&'a str, &'a str>);
-
-impl <'a> Headers<'a> {
-	pub fn insert(&mut self, key: &'a str, val: &'a str) {
-		self.0.insert(key, val);
-	}
-	pub fn new() -> Self {
-		Self(HashMap::new())
-	}
-}
-
-#[derive(Debug, PartialEq)]
 pub struct Request {
 	method: Method,
 	path: String,
@@ -116,11 +104,11 @@ pub enum ResponseCode {
 pub struct Response<'a, T: Content> {
 	content: &'a mut T,
 	version: Version,
-	headers: &'a Headers<'a>,
+	headers: &'a [(&'a str, &'a str)],
 }
 
 impl <'a, T: Content> Response<'a, T> {
-	pub fn new(content: &'a mut T, headers: &'a Headers) -> Response<'a, T> {
+	pub fn new(content: &'a mut T, headers: &'a [(&'a str, &'a str)]) -> Response<'a, T> {
 		Self {
 			version: Version::OneOne,
 			content,
@@ -146,7 +134,7 @@ impl <'a, T: Content> Response<'a, T> {
 			.unwrap();
 		writer.write(str.as_bytes()).await?;
 
-		for (key, value) in &self.headers.0 {
+		for (key, value) in self.headers {
 			let mut str = String::new();
 			write!(str, "{key}: {value}\r\n").unwrap();
 			writer.write(str.as_bytes()).await?;
