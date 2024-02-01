@@ -83,8 +83,8 @@ async fn main() {
 	});
 
 	let mut sigchld = signal(SignalKind::child()).expect("signal");
-	let mut sigint = signal(SignalKind::child()).expect("signal");
-	let mut sigterm = signal(SignalKind::child()).expect("signal");
+	let mut sigint = signal(SignalKind::interrupt()).expect("signal");
+	let mut sigterm = signal(SignalKind::terminate()).expect("signal");
 
 	tokio::select! {
 		_ = sigchld.recv() => {
