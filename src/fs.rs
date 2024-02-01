@@ -1,6 +1,5 @@
 use crate::proc;
-use pledge::pledge;
-use unveil::unveil;
+use proc::{pledge, unveil};
 use serde_derive::{Serialize, Deserialize};
 use tokio_seqpacket::UnixSeqpacket;
 use tokio_seqpacket::ancillary::{OwnedAncillaryMessage};

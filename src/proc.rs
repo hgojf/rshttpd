@@ -8,6 +8,17 @@ use nix::unistd::User;
 
 const PROCESS_FD: std::os::fd::RawFd = 3;
 
+pub fn pledge<'a, 'b, T, E> (promises: T, exec_promises: E)
+-> Result<(), pledge::Error> 
+where T: Into<Option<&'a str>>, E: Into<Option<&'a str>> {
+	pledge::pledge(promises, exec_promises).or_else(pledge::Error::ignore_platform)
+}
+
+pub fn unveil(path: impl AsRef<[u8]>, permissions: &str) -> Result<(), unveil::Error>
+{
+	unveil::unveil(path, permissions).or_else(unveil::Error::ignore_platform)
+}
+
 pub fn privdrop(root: &str, user: &str) -> std::io::Result<()> {
 	let user = User::from_name(user)?
 		.ok_or::<std::io::Error>(std::io::ErrorKind::NotFound.into())?;

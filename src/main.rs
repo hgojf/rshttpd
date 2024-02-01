@@ -8,7 +8,7 @@ mod client;
 mod crypto;
 
 use tokio_seqpacket::UnixSeqpacket;
-use pledge::pledge;
+use proc::pledge;
 use tokio::net::{UnixStream, TcpListener};
 use tokio::signal::unix::{signal, SignalKind};
 use tokio_util::sync::CancellationToken;

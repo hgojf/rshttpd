@@ -4,7 +4,7 @@ use tokio_seqpacket::UnixSeqpacket;
 use tokio::net::TcpStream;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::io::{AsyncWrite, AsyncWriteExt, BufStream, BufReader};
-use pledge::pledge;
+use proc::pledge;
 use std::sync::Arc;
 use std::fmt::Write;
 
