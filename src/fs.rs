@@ -33,8 +33,6 @@ pub async fn main() -> ! {
 	}
 	pledge("stdio sendfd recvfd rpath", None).expect("pledge");
 
-	pledge("stdio sendfd recvfd rpath", None).expect("pledge");
-
 	let mut buf: [u8; 4096] = [0; 4096];
 
 	let mut sigterm = signal(SignalKind::terminate()).expect("sigaction");
