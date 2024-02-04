@@ -16,7 +16,7 @@ impl MimeDb {
 		let mut lines = reader.lines();
 		while let Ok(string) = lines.next_line().await {
 			let Some(string) = string else { break; };
-			if string.starts_with("#") || string.is_empty() {
+			if string.starts_with('#') || string.is_empty() {
 				continue;
 			}
 			let mut components = string.split_ascii_whitespace();

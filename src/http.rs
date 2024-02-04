@@ -58,7 +58,7 @@ impl Request {
 		};
 		let path = words.next()
 			.ok_or(Error::Missing)?;
-		if !path.starts_with("/") {
+		if !path.starts_with('/') {
 			return Err(Error::BadPath);
 		}
 

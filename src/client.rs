@@ -103,7 +103,7 @@ impl Client<'_> {
 		Ok(message)
 	}
 	async fn resolve_path(&self, path: &str) -> std::io::Result<fs::OpenResponse> {
-		if path.ends_with("/") {
+		if path.ends_with('/') {
 			let index = format!("{}/index.html", path);
 			let response = self.resolve_path_under(&index).await?;
 			if let fs::OpenResponse::File(info, file) = response {
