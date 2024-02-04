@@ -108,9 +108,9 @@ impl Peer {
 			Some(OwnedAncillaryMessage::FileDescriptors(mut fds)) => {
 				let fd = fds.next()
 					.ok_or::<std::io::Error>(std::io::ErrorKind::NotFound.into())?;
-				return Ok(fd);
+				Ok(fd)
 			}
-			_ => return Err(std::io::ErrorKind::NotFound.into()),
+			_ => Err(std::io::ErrorKind::NotFound.into()),
 		}
 	}
 	pub async fn send_fds (&self, fds: &[OwnedFd])
@@ -148,9 +148,9 @@ impl Peer {
 			Some(OwnedAncillaryMessage::FileDescriptors(mut fds)) => {
 				let fd = fds.next()
 					.ok_or::<std::io::Error>(std::io::ErrorKind::NotFound.into())?;
-				return Ok((len, fd));
+				Ok((len, fd))
 			}
-			_ => return Err(std::io::ErrorKind::NotFound.into()),
+			_ => Err(std::io::ErrorKind::NotFound.into()),
 		}
 	}
 	pub async fn recv_with_fds(&self, data: &mut [u8]) 
@@ -168,9 +168,9 @@ impl Peer {
 					.ok_or::<std::io::Error>(std::io::ErrorKind::NotFound.into())?;
 				let fd2 = fds.next()
 					.ok_or::<std::io::Error>(std::io::ErrorKind::NotFound.into())?;
-				return Ok((len, (fd, fd2)));
+				Ok((len, (fd, fd2)))
 			}
-			_ => return Err(std::io::ErrorKind::NotFound.into()),
+			_ => Err(std::io::ErrorKind::NotFound.into()),
 		}
 	}
 }

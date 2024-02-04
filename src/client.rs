@@ -107,14 +107,14 @@ impl Client<'_> {
 			let index = format!("{}/index.html", path);
 			let response = self.resolve_path_under(&index).await?;
 			if let fs::OpenResponse::File(info, file) = response {
-				return Ok(fs::OpenResponse::File(info, file));
+				Ok(fs::OpenResponse::File(info, file))
 			}
 			else {
-				return self.resolve_path_under(path).await;
+				self.resolve_path_under(path).await
 			}
 		}
 		else {
-			return self.resolve_path_under(path).await;
+			self.resolve_path_under(path).await
 		}
 	}
 

@@ -72,7 +72,7 @@ impl Server {
 	async fn handle_request(&self, peer: &mut proc::Peer, request: &RecvMessageClient<'_>) 
 	-> std::io::Result<()> {
 		match request {
-			RecvMessageClient::Open(open) => return self.handle_open(peer, open).await,
+			RecvMessageClient::Open(open) => self.handle_open(peer, open).await,
 		}
 	}
 
@@ -263,16 +263,16 @@ impl Server {
 			 * so this has to do
 			 */
 			let dir = tokio::fs::read_dir(path).await?;
-			return Ok(File::Dir(dir));
+			Ok(File::Dir(dir))
 		}
 		else if metadata.is_file() {
-			return Ok(File::File(fd));
+			Ok(File::File(fd))
 		}
 		else {
 			/* This is a character device or something?
 			 * not sure how rust handles those
 			 */
-			return Err(FileError::SpecialFile);
+			Err(FileError::SpecialFile)
 		}
 	}
 }
