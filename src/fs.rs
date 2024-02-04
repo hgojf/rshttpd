@@ -54,7 +54,7 @@ pub async fn main() -> ! {
 				};
 				let buf = &buf[..len];
 				let mut peer = proc::Peer::from_stream(stream);
-				let message: RecvMessageClient = serde_cbor::from_slice(&buf)
+				let message: RecvMessageClient = serde_cbor::from_slice(buf)
 					.expect("serde_cbor");
 				server.handle_request(&mut peer, &message).await.expect("handle_request");
 				});

@@ -44,7 +44,7 @@ impl <'a> ProcessBuilder<'a> {
 		let mut command = process::Command::new(self.path);
 		command.kill_on_drop(true);
 		command.arg0("httpd");
-		command.args(&["-p", self.name]);
+		command.args(["-p", self.name]);
 		command.fd_mappings(vec![
 			FdMapping {
 				parent_fd: a.as_raw_fd(),
