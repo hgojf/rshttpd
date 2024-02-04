@@ -5,8 +5,7 @@ use std::io::BufReader;
 pub fn certs_from_file(file: std::fs::File) -> Result<Vec<CertificateDer<'static>>, std::io::Error> {
     let mut reader = BufReader::new(file);
     let certs = certs(&mut reader);
-	let certs: Vec<_> = certs.map(|cert| cert)
-		.collect::<Result<Vec<CertificateDer>, _>>()?;
+	let certs: Vec<_> = certs.collect::<Result<Vec<CertificateDer>, _>>()?;
     Ok(certs)
 }
 
