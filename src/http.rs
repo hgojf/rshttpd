@@ -128,24 +128,24 @@ impl <'a, T: Content> Response<'a, T> {
 			Version::OneOne => "HTTP/1.1",
 			Version::Two => "HTTP/2.0",
 		};
-		writer.write(version.as_bytes()).await?;
+		writer.write_all(version.as_bytes()).await?;
 		writer.write_u8(b' ').await?;
 		let response = self.content.code();
 		let response = response.val();
-		writer.write(response.as_bytes()).await?;
-		writer.write(b"\r\n").await?;
+		writer.write_all(response.as_bytes()).await?;
+		writer.write_all(b"\r\n").await?;
 
 		let mut str = String::new();
 		write!(str, "Content-Length: {}\r\n", self.content.len().await.expect("idk"))
 			.unwrap();
-		writer.write(str.as_bytes()).await?;
+		writer.write_all(str.as_bytes()).await?;
 
 		for (key, value) in self.headers {
 			let mut str = String::new();
 			write!(str, "{key}: {value}\r\n").unwrap();
-			writer.write(str.as_bytes()).await?;
+			writer.write_all(str.as_bytes()).await?;
 		}
-		writer.write(b"\r\n").await?;
+		writer.write_all(b"\r\n").await?;
 		if !self.head {
 			self.content.write(writer).await?;
 		}

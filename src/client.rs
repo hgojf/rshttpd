@@ -28,7 +28,7 @@ impl Content for Directory {
 		Ok(self.0.len())
 	}
 	async fn write<T: AsyncWrite + Unpin + Send> (&mut self, writer: &mut T) -> std::io::Result<()> {
-		writer.write(self.0.as_bytes()).await?;
+		writer.write_all(self.0.as_bytes()).await?;
 		Ok(())
 	}
 }
