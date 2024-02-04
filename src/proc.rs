@@ -98,7 +98,7 @@ impl Peer {
 	pub fn socket(&self) -> &UnixSeqpacket {
 		&self.socket
 	}
-	pub async fn recv_fd(&mut self) -> std::io::Result<OwnedFd> {
+	pub async fn recv_fd(&self) -> std::io::Result<OwnedFd> {
 		let mut buffer: [u8; 128] = [0; 128];
 		let (_, ancillary) = self.socket
 			.recv_vectored_with_ancillary(&mut [], &mut buffer).await?;
@@ -135,7 +135,7 @@ impl Peer {
 		self.socket.send_vectored_with_ancillary(&[slice], &mut writer).await?;
 		Ok(())
 	}
-	pub async fn recv_with_fd(&mut self, data: &mut [u8]) 
+	pub async fn recv_with_fd(&self, data: &mut [u8]) 
 	-> std::io::Result<(usize, OwnedFd)> 
 	{
 		let mut buffer: [u8; 128] = [0; 128];

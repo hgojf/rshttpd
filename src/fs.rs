@@ -10,13 +10,13 @@ use std::sync::Arc;
 
 pub async fn main() -> ! {
 	pledge("stdio sendfd recvfd rpath unveil", None).expect("pledge");
-	let mut parent = unsafe {
+	let parent = unsafe {
 		proc::Peer::get_parent()
 	};
 
 	let mut buf: [u8; 4096] = [0; 4096];
 	let (len, fd) = parent.recv_with_fd(&mut buf).await.expect("read");
-	let mut peer = {
+	let peer = {
 		let seq = UnixSeqpacket::try_from(fd).unwrap();
 		proc::Peer::from_stream(seq)
 	};

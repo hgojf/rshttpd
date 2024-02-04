@@ -35,7 +35,7 @@ impl Content for Directory {
 
 pub async fn main() -> ! {
 	pledge("stdio recvfd sendfd", None).expect("pledge");
-	let mut parent = unsafe {
+	let parent = unsafe {
 		proc::Peer::get_parent()
 	};
 	
