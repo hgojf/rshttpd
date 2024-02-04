@@ -161,7 +161,7 @@ impl From<fs::FileError> for http::ResponseCode {
 			fs::FileError::NotFound => http::ResponseCode::NotFound,
 			fs::FileError::NotAllowed => http::ResponseCode::PermissionDenied,
 			fs::FileError::SpecialFile => http::ResponseCode::InternalError,
-			_ => panic!(),
+			fs::FileError::Io => http::ResponseCode::InternalError,
 		}
 	}
 }
