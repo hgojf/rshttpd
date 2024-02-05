@@ -14,7 +14,7 @@ use tokio::signal::unix::{signal, SignalKind};
 use tokio_util::sync::CancellationToken;
 use std::os::fd::OwnedFd;
 
-const PROGRAM_PATH: &'static str = "/home/user/src/personal/httpd-rs/target/debug/httpd";
+const PROGRAM_PATH: &str = "/home/user/src/personal/httpd-rs/target/debug/httpd";
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
