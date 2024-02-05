@@ -20,7 +20,7 @@ pub struct Request {
 	method: Method,
 	path: String,
 	version: Version,
-	headers: HashMap<String, String>,
+	headers: HashMap<String, Vec<String>>,
 }
 
 #[derive(Debug)]
@@ -82,7 +82,13 @@ impl Request {
 			}
 			let (key, value) = line.split_once(':')
 				.ok_or(Error::BadHeader)?;
-			headers.insert(key.to_string(), value.to_string());
+			let values = value.split(',');
+			for value in values {
+				let value = value.trim();
+				headers.entry(key.to_string()).and_modify(|e: &mut Vec<String>| {
+					e.push(value.to_string());
+				}).or_insert(vec![value.to_string()]);
+			}
 		}
 		Ok(Self {
 			method, path: path.to_string(), version, headers
