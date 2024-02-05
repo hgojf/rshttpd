@@ -1,12 +1,14 @@
 use crate::{fs, proc, http, mime};
 use http::Content;
 use tokio_seqpacket::UnixSeqpacket;
-use tokio::net::TcpStream;
+use tokio::net::{UnixStream, TcpStream};
 use tokio::signal::unix::{signal, SignalKind};
-use tokio::io::{AsyncWrite, AsyncWriteExt, BufStream, BufReader};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, AsyncReadExt, BufStream, BufReader};
+use std::os::fd::OwnedFd;
 use proc::pledge;
 use std::sync::Arc;
 use std::fmt::Write;
+use thiserror::Error;
 
 #[async_trait::async_trait]
 impl Content for tokio::fs::File {
@@ -55,45 +57,131 @@ pub async fn main() -> ! {
 
 	loop {
 		tokio::select! {
-			stream = parent.recv_fd() => {
-				let stream = stream.unwrap();
-				let stream = std::net::TcpStream::from(stream);
-				let stream = TcpStream::from_std(stream).unwrap();
-				let fs = fs.clone();
-				let mimedb = mimedb.clone();
-				tokio::spawn(async move {
-				let mut client = Client {
-					client: BufStream::new(stream), fs: &fs, mimedb: &mimedb,
-				};
-				const KEEPALIVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
-				loop {
-					let Ok(result) = tokio::time::timeout(KEEPALIVE_TIMEOUT, client.run()).await 
-					else {
-						return;
-					};
-					if let Err(err) = result {
-						match err {
-							http::Error::Missing => {}, /* EOF (probably) */
-							other => eprintln!("{:?}", other),
-						}
-						return;
+			_ = sigint.recv() => { break },
+			stream = Accept::recv(&parent) => {
+				let stream = match stream {
+					Ok(stream) => stream,
+					Err(err) => {
+						eprintln!("Parent sent bad stream: {err}");
+						std::process::exit(1);
 					}
 				};
-				});
+				let fs = fs.clone();
+				let mimedb = mimedb.clone();
+				match stream {
+					Accept::Tls(stream) => {
+						let mut client = BufStream::new(stream);
+						let Ok(byte) = client.read_u8().await else {
+							continue;
+						};
+						let version: http::Version = byte.try_into().unwrap();
+						let mut client = Client {
+							version, client, fs: &fs, mimedb: &mimedb
+						};
+						if let Err(err) = client.main().await {
+							eprintln!("client error: {err}");
+						}
+					}
+					Accept::Plain(stream) => {
+						let client = BufStream::new(stream);
+						let mut client = Client {
+							version: http::Version::OneOne, client, fs: &fs, mimedb: &mimedb
+						};
+						if let Err(err) = client.main().await {
+							eprintln!("client error: {err}");
+						}
+					}
+				}
 			}
-			_ = sigint.recv() => { break },
 		}
 	};
 	std::process::exit(0);
 }
 
-struct Client<'a> {
-	mimedb: &'a mime::MimeDb,
-	fs: &'a proc::Peer,
-	client: BufStream<TcpStream>,
+pub enum Accept {
+	Tls(UnixStream),
+	Plain(TcpStream),
 }
 
-impl Client<'_> {
+#[derive(Debug, Error)]
+pub enum AcceptError {
+	#[error("I/O error: {0}", source)]
+	Io {
+		#[from]
+		source: std::io::Error,
+	},
+	#[error("Expected a file descriptor in control message")]
+	MissingFd,
+	#[error("Connection type was invalid")]
+	BadType,
+}
+
+impl Accept {
+	async fn recv(peer: &proc::Peer) -> Result<Self, AcceptError> {
+		let mut buf = [0u8; 1];
+		let (len, fd) = peer.recv_with_fd(&mut buf).await?;
+		if len != 1 {
+			return Err(AcceptError::MissingFd);
+		}
+		match buf[0] {
+			0 => {
+				let stream = std::os::unix::net::UnixStream::from(fd);
+				let stream = UnixStream::from_std(stream)?;
+				Ok(Self::Tls(stream))
+			}
+			1 => {
+				let stream = std::net::TcpStream::from(fd);
+				let stream = TcpStream::from_std(stream)?;
+				Ok(Self::Plain(stream))
+			}
+			_ => Err(AcceptError::BadType),
+		}
+	}
+	pub async fn send(self, peer: &proc::Peer) -> std::io::Result<()> {
+		let (fd, byte) = match self {
+			Self::Tls(stream) => {
+				let stream = stream.into_std()?;
+				let stream = OwnedFd::from(stream);
+				(stream, 0)
+			}
+			Self::Plain(stream) => {
+				let stream = stream.into_std()?;
+				let stream = OwnedFd::from(stream);
+				(stream, 1)
+			}
+		};
+		peer.send_with_fd(fd, &[byte]).await?;
+		Ok(())
+	}
+}
+
+struct Client<'a, T: AsyncRead + AsyncWrite> {
+	version: http::Version,
+	mimedb: &'a mime::MimeDb,
+	fs: &'a proc::Peer,
+	client: BufStream<T>,
+}
+
+#[derive(Debug, Error)]
+enum ClientError {
+	#[error("Keepalive timeout elapsed")]
+	Elapsed {
+		#[from]
+		source: tokio::time::error::Elapsed,
+	},
+	#[error("HTTP error: {source}")]
+	Http {
+		#[from]
+		source: http::Error,
+	},
+	#[error("I/O error: {source}")]
+	Io {
+		#[from]
+		source: std::io::Error,
+	}
+}
+
+impl <T: Unpin + Send + AsyncRead + AsyncWrite> Client<'_, T> {
 	async fn resolve_path_under(&self, path: &str) -> std::io::Result<fs::OpenResponse> {
 		let (mine, theirs) = UnixSeqpacket::pair()?;
 		let message = fs::RecvMessageClient::Open(path);
@@ -118,8 +206,24 @@ impl Client<'_> {
 		}
 	}
 
-	async fn run(&mut self) -> Result<(), http::Error> {
-		let request = http::Request::read(&mut self.client).await?;
+	async fn main(&mut self) -> Result<(), ClientError> {
+		match self.version {
+			http::Version::One => {
+				Ok(self.run().await?)
+			}
+			http::Version::OneOne => {
+				loop {
+					self.run().await?;
+				}
+			}
+			http::Version::Two => todo!(),
+		}
+	}
+
+	const KEEPALIVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+	async fn run(&mut self) -> Result<(), ClientError> {
+		let request = tokio::time::timeout(Self::KEEPALIVE_TIMEOUT,
+		http::Request::read(&mut self.client)).await??;
 
 		let response = self.resolve_path(request.path()).await.unwrap();
 		let head = request.method() == http::Method::HEAD;

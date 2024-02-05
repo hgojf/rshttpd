@@ -175,16 +175,18 @@ impl Manager {
 
 	async fn serve(&self) -> std::io::Result<()> {
 		let (con, _) = self.listener.accept().await?;
-		let con = OwnedFd::from(con.into_std()?);
 		match &self.acceptor {
 			Acceptor::Plain => {
-				self.client.peer().send_fds(&[con]).await?;
+				let message = client::Accept::Plain(con);
+				message.send(self.client.peer()).await?;
 			}
 			Acceptor::Tls(tls) => {
 				let (a, b) = UnixStream::pair()?;
-				let (a, b) = (a.into_std()?, b.into_std()?);
+				let a = a.into_std()?;
+				let con = OwnedFd::from(con.into_std()?);
 				tls.peer().send_fds(&[con, a.into()]).await?;
-				self.client.peer().send_fds(&[b.into()]).await?;
+				let message = client::Accept::Tls(b);
+				message.send(self.client.peer()).await?;
 			}
 		}
 		Ok(())

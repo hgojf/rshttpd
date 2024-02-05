@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, AsyncWrite};
 use std::fmt::Write;
+use num_enum::{TryFromPrimitive, IntoPrimitive};
+use thiserror::Error;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Method {
@@ -8,8 +10,9 @@ pub enum Method {
 	HEAD,
 }
 
-#[derive(Debug, PartialEq)]
-enum Version {
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, TryFromPrimitive, IntoPrimitive)]
+pub enum Version {
 	One,
 	OneOne,
 	Two,
@@ -23,22 +26,27 @@ pub struct Request {
 	headers: HashMap<String, Vec<String>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum Error {
-	IoError(std::io::Error),
+	#[error("I/O error: {source}")]
+	Io {
+		#[from]
+		source: std::io::Error,
+	},
+	#[error("Malformed request")]
 	Malformed,
+	#[error("Missing data in request")]
 	Missing,
+	#[error("Bad version in request")]
 	BadVersion,
+	#[error("Bad header in request")]
 	BadHeader,
+	#[error("Bad path in request")]
 	BadPath,
-	TooMuch,
+	#[error("Extra data in status line in request")]
+	ExtraWord,
+	#[error("Bad method in request")]
 	BadMethod,
-}
-
-impl From<std::io::Error> for Error {
-	fn from(source: std::io::Error) -> Self {
-		Self::IoError(source)
-	}
 }
 
 impl Request {
@@ -72,7 +80,7 @@ impl Request {
 		};
 
 		if words.next().is_some() {
-			return Err(Error::TooMuch);
+			return Err(Error::ExtraWord);
 		}
 
 		let mut headers = HashMap::new();

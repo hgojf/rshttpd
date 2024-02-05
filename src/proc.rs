@@ -98,21 +98,6 @@ impl Peer {
 	pub fn socket(&self) -> &UnixSeqpacket {
 		&self.socket
 	}
-	pub async fn recv_fd(&self) -> std::io::Result<OwnedFd> {
-		let mut buffer: [u8; 128] = [0; 128];
-		let (_, ancillary) = self.socket
-			.recv_vectored_with_ancillary(&mut [], &mut buffer).await?;
-		let mut messages = ancillary.into_messages();
-		let message = messages.next();
-		match message {
-			Some(OwnedAncillaryMessage::FileDescriptors(mut fds)) => {
-				let fd = fds.next()
-					.ok_or::<std::io::Error>(std::io::ErrorKind::NotFound.into())?;
-				Ok(fd)
-			}
-			_ => Err(std::io::ErrorKind::NotFound.into()),
-		}
-	}
 	pub async fn send_fds (&self, fds: &[OwnedFd])
 	-> std::io::Result<()> 
 	{
