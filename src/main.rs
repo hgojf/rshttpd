@@ -14,8 +14,6 @@ use tokio::signal::unix::{signal, SignalKind};
 use tokio_util::sync::CancellationToken;
 use std::os::fd::OwnedFd;
 
-const PROGRAM_PATH: &str = "/home/user/src/personal/httpd-rs/target/debug/httpd";
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
 	let mut args = std::env::args();
@@ -41,6 +39,9 @@ async fn main() {
 		}
 	}
 
+	let current_exe = std::env::current_exe().unwrap();
+	let current_exe = current_exe.into_os_string().into_string().unwrap();
+
 	let global_config = GlobalConfig::new("/usr/share/misc/mime.types").await.unwrap();
 
 	let config = ManagerConfig {
@@ -59,7 +60,7 @@ async fn main() {
 		]),
 		addr: "127.0.0.1:199".parse().unwrap(),
 	};
-	let server = Manager::new(PROGRAM_PATH, config, global_config).await.unwrap();
+	let server = Manager::new(&current_exe, config, global_config).await.unwrap();
 
 	proc::privdrop("/var/empty/", "www").expect("privdrop");
 	pledge("stdio sendfd proc inet", None).expect("pledge");
