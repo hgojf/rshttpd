@@ -1,4 +1,4 @@
-use crate::{proc, tls, http::Version as HttpVersion};
+use crate::{proc, tls, client::HttpVersion};
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::net::{TcpStream, UnixStream};
 use tokio::io::AsyncWriteExt;

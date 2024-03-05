@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, AsyncWrite};
 use std::fmt::Write;
-use num_enum::{TryFromPrimitive, IntoPrimitive};
 use thiserror::Error;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -11,7 +10,7 @@ pub enum Method {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, PartialEq, TryFromPrimitive, IntoPrimitive)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Version {
 	One,
 	OneOne,
@@ -136,6 +135,9 @@ impl Request {
 	}
 	pub fn method(&self) -> Method {
 		self.method
+	}
+	pub fn version(&self) -> Version {
+		self.version
 	}
 }
 

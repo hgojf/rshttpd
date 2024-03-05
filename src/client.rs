@@ -5,6 +5,7 @@ use tokio::net::{UnixStream, TcpStream};
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, AsyncReadExt, BufStream, BufReader};
 use serde::{Serialize, Deserialize};
+use num_enum::{TryFromPrimitive, IntoPrimitive};
 use proc::pledge;
 use std::sync::Arc;
 use std::fmt::Write;
@@ -85,9 +86,9 @@ pub async fn main() -> ! {
 						let Ok(byte) = client.read_u8().await else {
 							continue;
 						};
-						let version: http::Version = byte.try_into().unwrap();
+						let version: HttpVersion = byte.try_into().unwrap();
 						let mut client = Client {
-							version, client, fs: &fs, mimedb: &mimedb
+							version: version.into(), client, fs: &fs, mimedb: &mimedb
 						};
 						if let Err(err) = client.main().await {
 							eprintln!("client error: {err}");
@@ -96,7 +97,7 @@ pub async fn main() -> ! {
 					Accept::Plain(stream) => {
 						let client = BufStream::new(stream);
 						let mut client = Client {
-							version: http::Version::OneOne, client, fs: &fs, mimedb: &mimedb
+							version: HttpVersion::Unknown, client, fs: &fs, mimedb: &mimedb
 						};
 						if let Err(err) = client.main().await {
 							eprintln!("client error: {err}");
@@ -107,6 +108,23 @@ pub async fn main() -> ! {
 		}
 	};
 	std::process::exit(0);
+}
+
+#[repr(u8)]
+#[derive(TryFromPrimitive, IntoPrimitive)]
+pub enum HttpVersion {
+	One,
+	OneOne,
+	Unknown,
+}
+
+impl From<http::Version> for HttpVersion {
+	fn from(source: http::Version) -> Self {
+		match source {
+			http::Version::One => Self::One,
+			http::Version::OneOne => Self::OneOne,
+		}
+	}
 }
 
 pub enum Accept {
@@ -131,7 +149,7 @@ impl Accept {
 }
 
 struct Client<'a, T: AsyncRead + AsyncWrite> {
-	version: http::Version,
+	version: HttpVersion,
 	mimedb: &'a mime::MimeDb,
 	fs: &'a proc::Peer,
 	client: BufStream<T>,
@@ -183,22 +201,37 @@ impl <T: Unpin + Send + AsyncRead + AsyncWrite> Client<'_, T> {
 
 	async fn main(&mut self) -> Result<(), ClientError> {
 		match self.version {
-			http::Version::One => {
+			HttpVersion::One => {
 				Ok(self.run().await?)
 			}
-			http::Version::OneOne => {
+			HttpVersion::OneOne => {
 				loop {
 					self.run().await?;
+				}
+			}
+			HttpVersion::Unknown => {
+				let request = self.get_request().await?;
+				self.respond(&request).await?;
+				match request.version() {
+					http::Version::One => return Ok(()),
+					http::Version::OneOne => {
+						loop {
+							self.run().await?;
+						}
+					}
 				}
 			}
 		}
 	}
 
 	const KEEPALIVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
-	async fn run(&mut self) -> Result<(), ClientError> {
+	async fn get_request(&mut self) -> Result<http::Request, ClientError> {
 		let request = tokio::time::timeout(Self::KEEPALIVE_TIMEOUT,
-		http::Request::read(&mut self.client)).await??;
+			http::Request::read(&mut self.client)).await??;
+		Ok(request)
+	}
 
+	async fn respond(&mut self, request: &http::Request) -> Result<(), ClientError> {
 		let response = self.resolve_path(request.path()).await.unwrap();
 		let head = request.method() == http::Method::HEAD;
 
@@ -229,6 +262,12 @@ impl <T: Unpin + Send + AsyncRead + AsyncWrite> Client<'_, T> {
 			}
 		}
 		self.client.flush().await?;
+		Ok(())
+	}
+
+	async fn run(&mut self) -> Result<(), ClientError> {
+		let request = self.get_request().await?;
+		self.respond(&request).await?;
 		Ok(())
 	}
 }
