@@ -18,6 +18,38 @@ pub enum Version {
 	Two,
 }
 
+struct HttpPath(String);
+
+impl HttpPath {
+	fn from_str(str: &[u8]) -> Option<HttpPath> {
+		if !str.starts_with(b"/") {
+			return None;
+		}
+		let mut ret = Vec::new();
+		let mut chars = str.iter();
+		loop {
+			let char = match chars.next() {
+				Some(c) => c,
+				None => break,
+			};
+
+			if *char == b'%' {
+				let mut arr = [0u8; 2];
+				arr[0] = *chars.next()?;
+				arr[1] = *chars.next()?;
+				let str = std::str::from_utf8(&arr).ok()?;
+				let val = u8::from_str_radix(str, 16).ok()?;
+				ret.push(val);
+			}
+			else {
+				ret.push(*char);
+			}
+		}
+		let str = String::from_utf8(ret).ok()?;
+		Some(Self(str))
+	}
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Request {
 	method: Method,
@@ -66,9 +98,8 @@ impl Request {
 		};
 		let path = words.next()
 			.ok_or(Error::Missing)?;
-		if !path.starts_with('/') {
-			return Err(Error::BadPath);
-		}
+		let path = HttpPath::from_str(path.as_bytes()).ok_or(Error::BadPath)?;
+		let path = path.0;
 
 		let version = words.next()
 			.ok_or(Error::Malformed)?;
@@ -210,14 +241,14 @@ mod tests {
 	use tokio::io::BufReader;
 	#[tokio::test]
 	async fn header() {
-		let buf = b"GET / HTTP/1.1\r\n";
+		let buf = b"GET /%20 HTTP/1.1\r\n";
 		let mut reader = BufReader::new(&buf[..]);
 		let found = Request::read(&mut reader).await.unwrap();
 
 		let wanted = Request {
 			method: Method::GET,
 			version: Version::OneOne,
-			path: "/".into(),
+			path: "/ ".into(),
 			headers: HashMap::new(),
 		};
 		assert_eq!(found, wanted);
