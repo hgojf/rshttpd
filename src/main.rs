@@ -14,6 +14,8 @@ use tokio::signal::unix::{signal, SignalKind};
 use tokio_util::sync::CancellationToken;
 use std::os::fd::OwnedFd;
 
+use client::ClientConfig;
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
 	let mut args = std::env::args();
@@ -146,7 +148,7 @@ impl Manager {
 		let client = proc::ProcessBuilder::new(prog, "client")
 			.build()?;
 		let acceptor = match config.tls {
-			Some(tls) => {
+			Some(ref tls) => {
 				let certfile = tokio::fs::File::open(tls.cert).await?.into_std().await;
 				let keyfile = tokio::fs::File::open(tls.key).await?.into_std().await;
 				let crypto = proc::ProcessBuilder::new(prog, "crypto")
@@ -168,6 +170,12 @@ impl Manager {
 		let mime = OwnedFd::from(mime);
 		client.peer().send_fds(&[b.into(), mime]).await?;
 
+		let client_config = ClientConfig {
+			tls: config.tls.is_some(),
+		};
+		let buf = serde_cbor::to_vec(&client_config).expect("serde");
+		client.peer().socket().send(&buf).await?;
+
 		let listener = TcpListener::bind(config.addr).await?;
 		Ok(Self {
 			fs, client, acceptor, listener
@@ -178,16 +186,15 @@ impl Manager {
 		let (con, _) = self.listener.accept().await?;
 		match &self.acceptor {
 			Acceptor::Plain => {
-				let message = client::Accept::Plain(con);
-				message.send(self.client.peer()).await?;
+				let con = OwnedFd::from(con.into_std()?);
+				self.client.peer().send_with_fd(con, &[]).await?;
 			}
 			Acceptor::Tls(tls) => {
 				let (a, b) = UnixStream::pair()?;
 				let a = a.into_std()?;
 				let con = OwnedFd::from(con.into_std()?);
 				tls.peer().send_fds(&[con, a.into()]).await?;
-				let message = client::Accept::Tls(b);
-				message.send(self.client.peer()).await?;
+				self.client.peer().send_with_fd(b.into_std()?, &[]).await?;
 			}
 		}
 		Ok(())

@@ -4,7 +4,7 @@ use tokio_seqpacket::UnixSeqpacket;
 use tokio::net::{UnixStream, TcpStream};
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, AsyncReadExt, BufStream, BufReader};
-use std::os::fd::OwnedFd;
+use serde::{Serialize, Deserialize};
 use proc::pledge;
 use std::sync::Arc;
 use std::fmt::Write;
@@ -35,6 +35,11 @@ impl Content for Directory {
 	}
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct ClientConfig {
+	pub tls: bool,
+}
+
 pub async fn main() -> ! {
 	pledge("stdio recvfd sendfd", None).expect("pledge");
 	let parent = unsafe {
@@ -53,12 +58,18 @@ pub async fn main() -> ! {
 		(peer, mimedb)
 	};
 
+	let config: ClientConfig = {
+		let mut buf = [0u8; 128];
+		let len = parent.socket().recv(&mut buf).await.unwrap();
+		serde_cbor::from_slice(&buf[..len]).expect("serde")
+	};
+
 	let mut sigint = signal(SignalKind::interrupt()).expect("signal");
 
 	loop {
 		tokio::select! {
 			_ = sigint.recv() => { break },
-			stream = Accept::recv(&parent) => {
+			stream = Accept::accept(&parent, config.tls) => {
 				let stream = match stream {
 					Ok(stream) => stream,
 					Err(err) => {
@@ -103,55 +114,19 @@ pub enum Accept {
 	Plain(TcpStream),
 }
 
-#[derive(Debug, Error)]
-pub enum AcceptError {
-	#[error("I/O error: {0}", source)]
-	Io {
-		#[from]
-		source: std::io::Error,
-	},
-	#[error("Expected a file descriptor in control message")]
-	MissingFd,
-	#[error("Connection type was invalid")]
-	BadType,
-}
-
 impl Accept {
-	async fn recv(peer: &proc::Peer) -> Result<Self, AcceptError> {
-		let mut buf = [0u8; 1];
-		let (len, fd) = peer.recv_with_fd(&mut buf).await?;
-		if len != 1 {
-			return Err(AcceptError::MissingFd);
+	async fn accept(peer: &proc::Peer, tls: bool) -> std::io::Result<Self> {
+		let (_, fd) = peer.recv_with_fd(&mut []).await?;
+		if tls {
+			let stream = std::os::unix::net::UnixStream::from(fd);
+			let stream = UnixStream::from_std(stream)?;
+			Ok(Self::Tls(stream))
 		}
-		match buf[0] {
-			0 => {
-				let stream = std::os::unix::net::UnixStream::from(fd);
-				let stream = UnixStream::from_std(stream)?;
-				Ok(Self::Tls(stream))
-			}
-			1 => {
-				let stream = std::net::TcpStream::from(fd);
-				let stream = TcpStream::from_std(stream)?;
-				Ok(Self::Plain(stream))
-			}
-			_ => Err(AcceptError::BadType),
+		else {
+			let stream = std::net::TcpStream::from(fd);
+			let stream = TcpStream::from_std(stream)?;
+			Ok(Self::Plain(stream))
 		}
-	}
-	pub async fn send(self, peer: &proc::Peer) -> std::io::Result<()> {
-		let (fd, byte) = match self {
-			Self::Tls(stream) => {
-				let stream = stream.into_std()?;
-				let stream = OwnedFd::from(stream);
-				(stream, 0)
-			}
-			Self::Plain(stream) => {
-				let stream = stream.into_std()?;
-				let stream = OwnedFd::from(stream);
-				(stream, 1)
-			}
-		};
-		peer.send_with_fd(fd, &[byte]).await?;
-		Ok(())
 	}
 }
 
