@@ -15,7 +15,6 @@ pub enum Method {
 pub enum Version {
 	One,
 	OneOne,
-	Two,
 }
 
 struct HttpPath(String);
@@ -106,7 +105,6 @@ impl Request {
 		let version = match version {
 			"HTTP/1.0" => Version::One,
 			"HTTP/1.1" => Version::OneOne,
-			"HTTP/2" => Version::Two,
 			_ => return Err(Error::BadVersion),
 		};
 
@@ -171,7 +169,6 @@ impl <'a, T: Content> Response<'a, T> {
 		let version = match self.version {
 			Version::One => "HTTP/1.0",
 			Version::OneOne => "HTTP/1.1",
-			Version::Two => "HTTP/2.0",
 		};
 		writer.write_all(version.as_bytes()).await?;
 		writer.write_u8(b' ').await?;

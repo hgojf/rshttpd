@@ -73,7 +73,6 @@ impl CryptoStream {
 		let version = match client.get_ref().1.alpn_protocol() {
 			Some(b"http/1.0") => HttpVersion::One,
 			Some(b"http/1.1") => HttpVersion::OneOne,
-			Some(b"h2") => HttpVersion::Two,
 			_ => HttpVersion::One,
 		};
 		let byte: u8 = version.into();

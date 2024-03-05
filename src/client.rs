@@ -191,7 +191,6 @@ impl <T: Unpin + Send + AsyncRead + AsyncWrite> Client<'_, T> {
 					self.run().await?;
 				}
 			}
-			http::Version::Two => todo!(),
 		}
 	}
 
